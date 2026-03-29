@@ -1,0 +1,39 @@
+# ── Environment & Secrets ──────────────────────
+.env
+*.pem
+*.key
+firebase-service-account.json
+
+# ── Go ─────────────────────────────────────────
+/backend/bin/
+/backend/tmp/
+*.exe
+*.out
+
+# ── Node / Frontend ───────────────────────────
+node_modules/
+dist/
+.vite/
+
+# ── Python / Worker ───────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# ── Docker ─────────────────────────────────────
+postgres_data/
+redis_data/
+
+# ── IDE ────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+aether-8717a-firebase-adminsdk-fbsvc-c64efba18e.json
+.env.production
+*.zip

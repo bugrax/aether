@@ -1,0 +1,127 @@
+services:
+  # ── Infrastructure ───────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aether-postgres
+    restart: unless-stopped
+    # No host port — only accessible within Docker network
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aether}
+      POSTGRES_USER: ${POSTGRES_USER:-aether}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aether_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aether} -d ${POSTGRES_DB:-aether}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aether-internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: aether-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aether-internal
+
+  # ── Application ──────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aether-api
+    restart: unless-stopped
+    # No host port — NPM routes to this via Docker network
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-aether}
+      POSTGRES_USER: ${POSTGRES_USER:-aether}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aether_secret}
+      REDIS_URL: redis://redis:6379/0
+      API_PORT: "8080"
+      GIN_MODE: release
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CREDENTIALS_PATH: /app/firebase-service-account.json
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://aether.relayhaus.org}
+    volumes:
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aether-internal
+      - npm_default
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: aether-worker
+    restart: unless-stopped
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-aether}
+      POSTGRES_USER: ${POSTGRES_USER:-aether}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aether_secret}
+      EMBEDDING_URL: http://localhost:8100
+      CLAUDE_CLI_PATH: "ssh -o StrictHostKeyChecking=no -i /root/.ssh/id_rsa root@172.17.0.1 /usr/bin/claude"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - /root/.ssh:/root/.ssh:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - aether-internal
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://aether.relayhaus.org/api/v1}
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
+        VITE_FIREBASE_STORAGE_BUCKET: ${VITE_FIREBASE_STORAGE_BUCKET:-}
+        VITE_FIREBASE_MESSAGING_SENDER_ID: ${VITE_FIREBASE_MESSAGING_SENDER_ID:-}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
+        VITE_FIREBASE_MEASUREMENT_ID: ${VITE_FIREBASE_MEASUREMENT_ID:-}
+    container_name: aether-frontend
+    restart: unless-stopped
+    # No host port — NPM routes to this via Docker network
+    depends_on:
+      - api
+    networks:
+      - aether-internal
+      - npm_default
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  aether-internal:
+    driver: bridge
+  npm_default:
+    external: true

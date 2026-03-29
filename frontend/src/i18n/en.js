@@ -1,0 +1,78 @@
+export const en = {
+  // Sidebar
+  "vault": "The Vault",
+  "new_note": "New Note",
+  "share": "Capture Link",
+  "labels": "Labels",
+  "settings": "Settings",
+  "sign_out": "Sign Out",
+  "all_notes": "All Notes",
+
+  // Vault
+  "search_placeholder": "Search the void...",
+  "empty_void": "The void is empty.",
+  "create_first_note": "Create a note or share a URL to begin.",
+  "create_first_note_btn": "Create First Note",
+  "untitled": "Untitled",
+  "no_content_yet": "No content yet",
+  "delete_note": "Delete note",
+  "delete_confirm": "Are you sure you want to delete this note?",
+  "delete_modal_title": "Delete Note",
+  "delete_modal_body": "This note will be permanently removed from your vault. This action cannot be undone.",
+  "delete_modal_confirm": "Yes, Delete",
+  "delete_modal_cancel": "Cancel",
+  "delete_failed": "Failed to delete note.",
+  "just_now": "Just now",
+
+  // Editor
+  "back_to_vault": "← Back to Vault",
+  "editor_tab": "Editor",
+  "ai_insight_tab": "AI Insight",
+  "history_tab": "History",
+  "save": "Save",
+  "saving": "Saving...",
+  "autosaved_just_now": "Auto-saved just now",
+  "start_writing": "Start writing...",
+  "auto_generated_analysis": "Auto-generated analysis",
+  "source_material": "Source Material",
+  "version_history": "Version History",
+  "current_version": "Current Version",
+  "version": "Version",
+  "origin_point": "Origin Point",
+  "end_of_history": "End of History Log",
+  "no_revisions": "No version history yet",
+  "no_revisions_desc": "Revisions will appear here as you edit",
+
+  // Share
+  "capture_link_desc": "Drop a URL and let AI extract & summarize the content",
+  "share_url_placeholder": "https://youtube.com/watch?v=... or any article URL",
+  "capture_link": "⚡ Capture Link",
+  "share_url_supported_types": "Supports YouTube, articles, blogs, and documentation",
+  "sending": "Sending...",
+  "processing": "🌀 Processing...",
+  "done": "🎉 Done!",
+  "open_note": "Open Note →",
+  "processing_failed": "Processing Failed",
+  "processing_failed_desc": "The content couldn't be extracted. Try another URL.",
+
+  // Loading & Empty
+  "loading": "Loading your vault...",
+  "vault_empty_title": "Your vault is empty",
+  "vault_empty_desc": "Start by sharing a link or creating a new note.",
+  "no_results": "No results found",
+  "try_different_search": "Try a different search term",
+  "clear_search": "Clear search",
+
+  // Settings
+  "manage_labels": "Manage Labels",
+  "new_label": "New label...",
+  "create": "Create",
+  "cancel": "Cancel",
+  "language": "Language",
+  "select_language": "Select your preferred language",
+
+  // Label Picker (Editor)
+  "add_label": "Add Label",
+  "remove_label": "Remove",
+  "no_labels_available": "No labels available",
+};

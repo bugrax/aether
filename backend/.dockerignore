@@ -1,0 +1,4 @@
+bin/
+.env
+firebase-service-account.json
+*.test.go

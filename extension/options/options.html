@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Aether Extension Settings</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1 class="logo">Aether</h1>
+      <p class="subtitle">Extension Settings</p>
+    </header>
+
+    <section class="card">
+      <h2 class="card-title">Connection</h2>
+
+      <div class="field">
+        <label for="api-url">API URL</label>
+        <input type="url" id="api-url" placeholder="https://aether.relayhaus.org/api/v1">
+        <p class="field-hint">Leave empty to use default production URL</p>
+      </div>
+
+      <div class="field">
+        <label for="webapp-url">Webapp URL</label>
+        <input type="url" id="webapp-url" placeholder="https://aether.relayhaus.org">
+        <p class="field-hint">Used for opening notes and login redirects</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Notifications</h2>
+
+      <div class="field row">
+        <label for="notif-save">Show notification when URL is saved</label>
+        <input type="checkbox" id="notif-save" checked>
+      </div>
+
+      <div class="field row">
+        <label for="notif-complete">Show notification when processing completes</label>
+        <input type="checkbox" id="notif-complete" checked>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Account</h2>
+      <div class="field">
+        <div id="auth-status" class="auth-status">
+          <span class="auth-dot"></span>
+          <span id="auth-text">Checking...</span>
+        </div>
+      </div>
+      <button id="sign-out-btn" class="btn-danger">Sign Out</button>
+    </section>
+
+    <div class="footer">
+      <button id="save-btn" class="btn-primary">Save Settings</button>
+      <span id="save-msg" class="save-msg hidden">Saved!</span>
+    </div>
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

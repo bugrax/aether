@@ -1,0 +1,9 @@
+{
+  "appId": "com.aether.app",
+  "appName": "Aether",
+  "webDir": "dist",
+  "server": {
+    "url": "http://192.168.68.61:5173",
+    "cleartext": true
+  }
+}
