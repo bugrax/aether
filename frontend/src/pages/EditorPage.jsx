@@ -61,6 +61,10 @@ export default function EditorPage() {
       setTitle(data.title || '');
       setContent(data.content || '');
       setNoteLabels(data.labels || []);
+      // Default to AI Insight tab if available
+      if (data.ai_insight) {
+        setActiveTab('ai');
+      }
     } catch (err) {
       console.error('Failed to load note:', err);
     }
