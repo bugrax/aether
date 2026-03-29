@@ -49,10 +49,12 @@ jobs:
             --exclude='.git' \
             --exclude='node_modules' \
             --exclude='dist' \
-            --exclude='.env' \
-            --exclude='.env.production' \
+            --exclude='.env*' \
             --exclude='firebase-service-account.json' \
+            --exclude='aether-*-firebase-*' \
             --exclude='*.zip' \
+            --exclude='postgres_data' \
+            --exclude='redis_data' \
             ./ root@$MINIS_IP:/root/aether/
 
       - name: Build and restart containers
