@@ -74,10 +74,15 @@ function NoteCard({ note, onClick, onRequestDelete, t }) {
   const domain = !hasLabels ? getSourceDomain(note.source_url) : null;
   return (
     <article
-      className="note-card fade-in"
+      className={`note-card fade-in ${note.thumbnail_url ? 'has-thumbnail' : ''}`}
       onClick={onClick}
       id={`note-${note.id}`}
     >
+      {note.thumbnail_url && (
+        <div className="note-card-thumbnail">
+          <img src={note.thumbnail_url} alt="" loading="lazy" />
+        </div>
+      )}
       {domain && (
         <div className="note-card-source">
           <span className="source-icon"><SourceLinkIcon /></span>

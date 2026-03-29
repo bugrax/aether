@@ -23,9 +23,10 @@ type Note struct {
 	UserID    uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
 	Title     string         `gorm:"size:500" json:"title"`
 	Content   string         `gorm:"type:text" json:"content"`
-	SourceURL string         `gorm:"size:2048" json:"source_url,omitempty"`
-	Status    NoteStatus     `gorm:"type:varchar(20);default:'draft';not null;index" json:"status"`
-	AIInsight string         `gorm:"type:text" json:"ai_insight,omitempty"`
+	SourceURL    string         `gorm:"size:2048" json:"source_url,omitempty"`
+	ThumbnailURL string         `gorm:"size:2048" json:"thumbnail_url,omitempty"`
+	Status       NoteStatus     `gorm:"type:varchar(20);default:'draft';not null;index" json:"status"`
+	AIInsight    string         `gorm:"type:text" json:"ai_insight,omitempty"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

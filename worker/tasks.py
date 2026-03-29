@@ -89,6 +89,7 @@ def _extract_video(url: str) -> dict:
 
     title = info.get("title", "Untitled Video")
     description = info.get("description", "")
+    thumbnail = info.get("thumbnail", "")
 
     # We always prioritize transcribing raw audio via Gemini for high-quality verbatim text
     content = f"# {title}\n\n{description}"
@@ -98,7 +99,7 @@ def _extract_video(url: str) -> dict:
     else:
         logger.warning("Gemini transcript failed, returning only title and description.")
 
-    return {"title": title, "content": content}
+    return {"title": title, "content": content, "thumbnail": thumbnail}
 
 
 def _transcribe_audio_with_gemini(url: str) -> str:
@@ -191,10 +192,21 @@ def _extract_article(url: str) -> dict:
 
     title = soup.title.string.strip() if soup.title and soup.title.string else "Untitled"
 
+    # Extract og:image thumbnail
+    thumbnail = ""
+    og_image = soup.find("meta", property="og:image") or soup.find("meta", attrs={"name": "og:image"})
+    if og_image and og_image.get("content"):
+        thumbnail = og_image["content"]
+    else:
+        # Fallback: twitter:image
+        tw_image = soup.find("meta", attrs={"name": "twitter:image"}) or soup.find("meta", property="twitter:image")
+        if tw_image and tw_image.get("content"):
+            thumbnail = tw_image["content"]
+
     # Try to find main article content
     article = soup.find("article") or soup.find("main") or soup.find("body")
     content = article.get_text(separator="\n", strip=True)
-    return {"title": title, "content": content}
+    return {"title": title, "content": content, "thumbnail": thumbnail}
 
 
 # ── Claude CLI Configuration ──────────────────────────
@@ -439,13 +451,14 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
         update_note_status(note_id, "processing")
         extracted = extract_content_from_url(url)
 
-        # Step 2: Update note with extracted content
-        update_note_status(
-            note_id,
-            "processing",
-            title=extracted["title"],
-            content=extracted["content"],
-        )
+        # Step 2: Update note with extracted content + thumbnail
+        update_fields = {
+            "title": extracted["title"],
+            "content": extracted["content"],
+        }
+        if extracted.get("thumbnail"):
+            update_fields["thumbnail_url"] = extracted["thumbnail"]
+        update_note_status(note_id, "processing", **update_fields)
 
         # Step 3: Generate AI summary
         ai_summary = call_llm(extracted["content"], instruction="Summarize", language=language)
