@@ -1,0 +1,61 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to minis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H minis >> ~/.ssh/known_hosts 2>/dev/null || true
+          cat >> ~/.ssh/config << 'EOF'
+          Host minis
+            HostName minis
+            User root
+            IdentityFile ~/.ssh/id_deploy
+            StrictHostKeyChecking no
+          EOF
+
+      - name: Sync project files
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='.env' \
+            --exclude='.env.production' \
+            --exclude='firebase-service-account.json' \
+            --exclude='*.zip' \
+            ./ root@minis:/root/aether/
+
+      - name: Build and restart containers
+        run: |
+          ssh minis << 'DEPLOY'
+            cd /root/aether
+            echo "==> Building containers..."
+            docker compose up -d --build frontend api worker
+            echo "==> Cleaning up old images..."
+            docker image prune -f
+            echo "==> Deployment complete!"
+            docker compose ps
+          DEPLOY
