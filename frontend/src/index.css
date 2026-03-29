@@ -1025,6 +1025,70 @@ p {
   color: var(--secondary);
 }
 
+.ai-heading {
+  color: var(--on-surface);
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-2);
+}
+
+.ai-divider {
+  border: none;
+  border-top: 1px solid var(--outline-variant);
+  margin: var(--space-4) 0;
+}
+
+/* ── AI Insight Tables ─────────────────────────────── */
+.ai-table-wrap {
+  overflow-x: auto;
+  margin: var(--space-3) 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--outline-variant);
+}
+
+.ai-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.ai-table th {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-container-highest);
+  color: var(--on-surface);
+  font-family: var(--font-label);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--outline-variant);
+  white-space: nowrap;
+}
+
+.ai-table td {
+  padding: var(--space-2) var(--space-3);
+  color: var(--on-surface-variant);
+  border-bottom: 1px solid var(--surface-container-highest);
+  line-height: 1.5;
+}
+
+.ai-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ai-table tr:hover td {
+  background: var(--surface-container);
+}
+
+.ai-table td strong {
+  color: var(--on-surface);
+}
+
+.ai-table td em {
+  color: var(--on-surface-variant);
+  font-style: italic;
+}
+
 .ai-key-points {
   display: flex;
   flex-direction: column;

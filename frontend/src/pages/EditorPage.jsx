@@ -421,10 +421,119 @@ function renderInlineMarkdown(text) {
     .replace(/`(.+?)`/g, '<code>$1</code>');
 }
 
+// ── Markdown Table Parser ───────────────────────────
+function parseTable(lines, startIndex) {
+  const rows = [];
+  let i = startIndex;
+
+  while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
+    const cells = lines[i].trim().split('|').filter(c => c.trim() !== '');
+    // Skip separator rows like |---|---|
+    if (!cells.every(c => /^[\s-:]+$/.test(c))) {
+      rows.push(cells.map(c => c.trim()));
+    }
+    i++;
+  }
+
+  return { rows, endIndex: i };
+}
+
 // ── AI Insight Sub-view ───────────────────────────────
 function AIInsightView({ insight, sourceUrl, t }) {
-  // Parse AI insight into sections
-  const lines = insight.split('\n').filter(l => l.trim());
+  const lines = insight.split('\n');
+  const elements = [];
+  let i = 0;
+  let bulletCount = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Skip empty lines
+    if (!trimmed) { i++; continue; }
+
+    // Table: starts with | and has multiple |
+    if (trimmed.startsWith('|') && trimmed.endsWith('|') && (trimmed.match(/\|/g) || []).length >= 3) {
+      const { rows, endIndex } = parseTable(lines, i);
+      if (rows.length > 0) {
+        const header = rows[0];
+        const body = rows.slice(1);
+        elements.push(
+          <div key={i} className="ai-table-wrap">
+            <table className="ai-table">
+              <thead>
+                <tr>{header.map((cell, ci) => (
+                  <th key={ci} dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(cell) }} />
+                ))}</tr>
+              </thead>
+              <tbody>
+                {body.map((row, ri) => (
+                  <tr key={ri}>{row.map((cell, ci) => (
+                    <td key={ci} dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(cell) }} />
+                  ))}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+      i = endIndex;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(trimmed) || /^\*\*\*+$/.test(trimmed)) {
+      elements.push(<hr key={i} className="ai-divider" />);
+      i++;
+      continue;
+    }
+
+    // Headings
+    if (trimmed.startsWith('#')) {
+      const level = trimmed.match(/^#+/)[0].length;
+      const text = trimmed.replace(/^#+\s*/, '');
+      const Tag = level <= 2 ? 'h3' : 'h4';
+      elements.push(
+        <Tag key={i} className="ai-heading" dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(text) }} />
+      );
+      i++;
+      continue;
+    }
+
+    // Bullet list
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      const text = trimmed.replace(/^[-*]\s*/, '');
+      elements.push(
+        <div key={i} className="ai-key-point">
+          <span className="ai-key-point-number">{String(bulletCount).padStart(2, '0')}</span>
+          <span className="ai-key-point-text" dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(text) }} />
+        </div>
+      );
+      bulletCount++;
+      i++;
+      continue;
+    }
+
+    // Numbered list
+    if (/^\d+\.\s/.test(trimmed)) {
+      const text = trimmed.replace(/^\d+\.\s*/, '');
+      const num = trimmed.match(/^(\d+)\./)[1];
+      elements.push(
+        <div key={i} className="ai-key-point">
+          <span className="ai-key-point-number">{num.padStart(2, '0')}</span>
+          <span className="ai-key-point-text" dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(text) }} />
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // Regular paragraph
+    elements.push(
+      <p key={i} dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(trimmed) }} />
+    );
+    i++;
+  }
 
   return (
     <div className="ai-panel fade-in">
@@ -439,29 +548,7 @@ function AIInsightView({ insight, sourceUrl, t }) {
       </div>
 
       <div className="ai-insight-content">
-        {lines.map((line, i) => {
-          if (line.startsWith('- ') || line.startsWith('* ')) {
-            const text = line.replace(/^[-*]\s*/, '');
-            return (
-              <div key={i} className="ai-key-point">
-                <span className="ai-key-point-number">{String(i).padStart(2, '0')}</span>
-                <span
-                  className="ai-key-point-text"
-                  dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(text) }}
-                />
-              </div>
-            );
-          }
-          if (line.startsWith('#')) {
-            return <h4 key={i} style={{ color: 'var(--on-surface)', marginTop: 'var(--space-3)' }}>{line.replace(/^#+\s*/, '')}</h4>;
-          }
-          return (
-            <p
-              key={i}
-              dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(line) }}
-            />
-          );
-        })}
+        {elements}
       </div>
 
       {sourceUrl && (
