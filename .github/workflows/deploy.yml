@@ -22,23 +22,30 @@ jobs:
           oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
           tags: tag:ci
 
+      - name: Wait for Tailscale DNS
+        run: |
+          for i in $(seq 1 30); do
+            if tailscale status --peers | grep -q minis; then
+              echo "Tailscale peer 'minis' found"
+              break
+            fi
+            echo "Waiting for Tailscale... ($i/30)"
+            sleep 2
+          done
+
       - name: Setup SSH key
         run: |
+          MINIS_IP=$(tailscale ip -4 minis 2>/dev/null || echo "100.100.181.45")
+          echo "MINIS_IP=$MINIS_IP" >> $GITHUB_ENV
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          ssh-keyscan -H minis >> ~/.ssh/known_hosts 2>/dev/null || true
-          cat >> ~/.ssh/config << 'EOF'
-          Host minis
-            HostName minis
-            User root
-            IdentityFile ~/.ssh/id_deploy
-            StrictHostKeyChecking no
-          EOF
+          ssh-keyscan -H $MINIS_IP >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Sync project files
         run: |
           rsync -avz --delete \
+            -e "ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no" \
             --exclude='.git' \
             --exclude='node_modules' \
             --exclude='dist' \
@@ -46,11 +53,11 @@ jobs:
             --exclude='.env.production' \
             --exclude='firebase-service-account.json' \
             --exclude='*.zip' \
-            ./ root@minis:/root/aether/
+            ./ root@$MINIS_IP:/root/aether/
 
       - name: Build and restart containers
         run: |
-          ssh minis << 'DEPLOY'
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no root@$MINIS_IP << 'DEPLOY'
             cd /root/aether
             echo "==> Building containers..."
             docker compose up -d --build frontend api worker
