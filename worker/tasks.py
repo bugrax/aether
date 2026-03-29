@@ -225,7 +225,17 @@ def call_llm(content: str, instruction: str = "Summarize", language: str = "en")
 Focus on extracting DEEP knowledge, not just surface-level summaries. Your response MUST include:
 1. A concise overview of the core topic.
 2. The most critical insights and actionable takeaways.
-3. Explicit extraction of any specific entities mentioned (e.g., Books, Authors, Websites, Frameworks, Tools, People). If none exist, skip this section.
+3. Explicit extraction of any specific entities mentioned. For EACH entity, you MUST prefix its name with a type emoji to indicate what kind of entity it is. Use these prefixes consistently:
+   - 📚 for books/novels/written works
+   - 🎬 for films/movies/series/documentaries
+   - 🎵 for music/songs/albums/composers
+   - 👤 for people (directors, authors, scientists, etc.)
+   - 🌐 for websites/platforms/channels
+   - 🔧 for tools/frameworks/software
+   - 💡 for concepts/theories/ideas
+   - 📍 for locations/places
+   Example: | 📚 Traumnovelle | Arthur Schnitzler's novella... |
+   If no entities exist, skip this section.
 
 IMPORTANT: YOUR ENTIRE RESPONSE OR SUMMARY MUST BE WRITTEN IN {lang_instruction.upper()}.
 
