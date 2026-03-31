@@ -1,13 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
+// In Docker builds, @capacitor-firebase/authentication is not installed.
+// Mark it external only when DOCKER_BUILD env is set.
+const isDocker = process.env.DOCKER_BUILD === '1'
+
 export default defineConfig({
   plugins: [react()],
   envDir: '../',
   build: {
     rollupOptions: {
-      external: ['@capacitor-firebase/authentication'],
+      external: isDocker ? ['@capacitor-firebase/authentication'] : [],
     },
   },
 })
