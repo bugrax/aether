@@ -277,6 +277,17 @@ def _extract_instagram(url: str) -> dict:
         if vision_text:
             content = content + "\n\n--- Image Analysis ---\n" + vision_text if content else vision_text
 
+        # Convert first image to data URI for persistent thumbnail
+        try:
+            import base64
+            with open(downloaded_files[0], "rb") as f:
+                img_data = f.read()
+            if len(img_data) < 500_000:
+                b64 = base64.b64encode(img_data).decode()
+                thumbnail = f"data:image/jpeg;base64,{b64}"
+        except Exception:
+            pass
+
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if not content:
