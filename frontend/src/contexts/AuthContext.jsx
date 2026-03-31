@@ -1,19 +1,17 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { setAuthToken, getAuthToken } from '../api';
 
 const AuthContext = createContext(null);
 
-// Check if we're in dev mode (no Firebase config)
 const isDevMode = !import.meta.env.VITE_FIREBASE_API_KEY ||
                   import.meta.env.VITE_FIREBASE_API_KEY === 'demo-key';
 
-// Broadcast auth token to Chrome extension via postMessage
 function broadcastToken(token) {
   if (token) {
     window.postMessage({
       type: 'AETHER_AUTH_TOKEN',
       token,
-      expiresAt: Date.now() + 3600000, // 1 hour
+      expiresAt: Date.now() + 3600000,
     }, '*');
   }
 }
@@ -21,8 +19,48 @@ function broadcastToken(token) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const refreshTimerRef = useRef(null);
+  const userRef = useRef(null);
+  userRef.current = user;
 
-  // Listen for token requests from the Chrome extension content script
+  // Refresh token helper
+  const refreshToken = useCallback(async () => {
+    const u = userRef.current;
+    if (!u || isDevMode) return;
+    try {
+      let token;
+      if (u.getIdToken) {
+        token = await u.getIdToken(true); // force refresh for native user-like objects
+      }
+      if (token) {
+        setAuthToken(token);
+        broadcastToken(token);
+      }
+    } catch (err) {
+      console.error('Token refresh failed:', err);
+    }
+  }, []);
+
+  // Periodic token refresh (every 45 min) + on foreground
+  useEffect(() => {
+    if (isDevMode || !user) return;
+
+    // Refresh every 45 minutes
+    refreshTimerRef.current = setInterval(refreshToken, 45 * 60 * 1000);
+
+    // Refresh when app comes to foreground
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshToken();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(refreshTimerRef.current);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [user, refreshToken]);
+
+  // Extension token request listener
   useEffect(() => {
     const handleMessage = (event) => {
       if (event.source !== window) return;
@@ -35,76 +73,91 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  // Init auth
   useEffect(() => {
     if (isDevMode) {
-      // Dev mode: skip Firebase, use a mock user
-      console.log('🔧 Dev mode: Firebase auth bypassed');
-      setUser({
-        uid: 'dev-user-local',
-        email: 'dev@aether.local',
-        displayName: 'Developer',
-      });
+      setUser({ uid: 'dev-user-local', email: 'dev@aether.local', displayName: 'Developer' });
       setAuthToken('dev-token');
       broadcastToken('dev-token');
       setLoading(false);
       return;
     }
 
-    // Production: use Firebase
     let unsubscribe;
+    let loadingTimeout = setTimeout(() => {
+      console.warn('Auth loading timeout — forcing load complete');
+      setLoading(false);
+    }, 5000);
 
-    import('../firebase')
-      .then(async ({ auth, onAuthStateChanged, getRedirectResult }) => {
-        // Handle redirect result (for Capacitor/mobile auth flow)
+    import('../firebase').then(({ auth, onAuthStateChanged, isNative }) => {
+      if (isNative) {
+        import('@capacitor-firebase/authentication').then(({ FirebaseAuthentication }) => {
+          FirebaseAuthentication.getCurrentUser().then(({ user: nativeUser }) => {
+            clearTimeout(loadingTimeout);
+            if (nativeUser) {
+              FirebaseAuthentication.getIdToken({ forceRefresh: true }).then(({ token }) => {
+                const userObj = {
+                  uid: nativeUser.uid,
+                  email: nativeUser.email,
+                  displayName: nativeUser.displayName,
+                  photoURL: nativeUser.photoUrl,
+                  getIdToken: async () => {
+                    const t = await FirebaseAuthentication.getIdToken({ forceRefresh: true });
+                    return t.token;
+                  },
+                };
+                setUser(userObj);
+                setAuthToken(token);
+                broadcastToken(token);
+                setLoading(false);
+              });
+            } else {
+              setLoading(false);
+            }
+          }).catch(() => {
+            clearTimeout(loadingTimeout);
+            setLoading(false);
+          });
+        });
+        return;
+      }
+
+      // Web: use Firebase JS SDK onAuthStateChanged
+      unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        clearTimeout(loadingTimeout);
         try {
-          const redirectResult = await getRedirectResult(auth);
-          if (redirectResult?.user) {
-            const token = await redirectResult.user.getIdToken();
-            setUser(redirectResult.user);
+          if (firebaseUser) {
+            const token = await firebaseUser.getIdToken();
+            setUser(firebaseUser);
             setAuthToken(token);
             broadcastToken(token);
-          }
-        } catch (err) {
-          console.error('Redirect result error:', err);
-        }
-
-        unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-          try {
-            if (firebaseUser) {
-              const token = await firebaseUser.getIdToken();
-              setUser(firebaseUser);
-              setAuthToken(token);
-              broadcastToken(token);
-            } else {
-              setUser(null);
-              setAuthToken(null);
-            }
-          } catch (err) {
-            console.error('Auth state error:', err);
+          } else {
             setUser(null);
             setAuthToken(null);
-          } finally {
-            setLoading(false);
           }
-        });
-      })
-      .catch((err) => {
-        console.error('Failed to load Firebase:', err);
-        setLoading(false);
+        } catch (err) {
+          console.error('Auth state error:', err);
+          setUser(null);
+          setAuthToken(null);
+        } finally {
+          setLoading(false);
+        }
       });
+    }).catch((err) => {
+      clearTimeout(loadingTimeout);
+      console.error('Failed to load Firebase:', err);
+      setLoading(false);
+    });
 
     return () => {
+      clearTimeout(loadingTimeout);
       if (unsubscribe) unsubscribe();
     };
   }, []);
 
   const login = async () => {
     if (isDevMode) {
-      setUser({
-        uid: 'dev-user-local',
-        email: 'dev@aether.local',
-        displayName: 'Developer',
-      });
+      setUser({ uid: 'dev-user-local', email: 'dev@aether.local', displayName: 'Developer' });
       setAuthToken('dev-token');
       broadcastToken('dev-token');
       return;
@@ -112,9 +165,9 @@ export function AuthProvider({ children }) {
 
     const { signInWithGoogle } = await import('../firebase');
     const firebaseUser = await signInWithGoogle();
-    // In redirect flow (Capacitor), firebaseUser is null — onAuthStateChanged handles it
     if (firebaseUser) {
-      const token = await firebaseUser.getIdToken();
+      const token = firebaseUser._nativeToken || await firebaseUser.getIdToken();
+      setUser(firebaseUser);
       setAuthToken(token);
       broadcastToken(token);
     }
