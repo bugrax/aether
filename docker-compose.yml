@@ -115,6 +115,15 @@ services:
       - aether-internal
       - npm_default
 
+  landing:
+    build:
+      context: ./landing
+      dockerfile: Dockerfile
+    container_name: aether-landing
+    restart: unless-stopped
+    networks:
+      - npm_default
+
 volumes:
   postgres_data:
     driver: local
