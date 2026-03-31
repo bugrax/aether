@@ -64,6 +64,10 @@ def extract_content_from_url(url: str) -> dict:
         if any(domain in url for domain in ["youtube.com", "youtu.be", "vimeo.com"]):
             return _extract_video(url)
 
+        # Instagram: use yt-dlp for reels/videos, og tags for posts
+        if "instagram.com" in url:
+            return _extract_instagram(url)
+
         # Fall back to web scraping for articles
         return _extract_article(url)
     except Exception as e:
@@ -174,6 +178,59 @@ def _transcribe_audio_with_gemini(url: str) -> str:
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+def _extract_instagram(url: str) -> dict:
+    """Extract Instagram post/reel content using og tags and yt-dlp."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    title = "Instagram Post"
+    content = ""
+    thumbnail = ""
+
+    # Try to get og tags from the page (works without login)
+    try:
+        response = requests.get(url, headers=headers, timeout=15, verify=certifi.where())
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        og_title = soup.find("meta", property="og:title")
+        if og_title and og_title.get("content"):
+            title = og_title["content"]
+
+        og_desc = soup.find("meta", property="og:description")
+        if og_desc and og_desc.get("content"):
+            content = og_desc["content"]
+
+        og_image = soup.find("meta", property="og:image")
+        if og_image and og_image.get("content"):
+            thumbnail = og_image["content"]
+    except Exception as e:
+        logger.warning(f"Instagram og tag extraction failed: {e}")
+
+    # Try yt-dlp for video/reel description
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "--no-download", "--print", "%(title)s|||%(description)s|||%(thumbnail)s", url],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split("|||")
+            if len(parts) >= 1 and parts[0] and parts[0] != "NA":
+                title = parts[0]
+            if len(parts) >= 2 and parts[1] and parts[1] != "NA":
+                content = parts[1]
+            if len(parts) >= 3 and parts[2] and parts[2] != "NA":
+                thumbnail = parts[2]
+    except Exception as e:
+        logger.warning(f"Instagram yt-dlp extraction failed: {e}")
+
+    if not content:
+        content = f"Instagram post: {url}"
+
+    return {"title": title, "content": content, "thumbnail": thumbnail}
 
 
 def _extract_article(url: str) -> dict:
@@ -364,6 +421,7 @@ def generate_embedding(note_id: str, title: str, content: str, ai_insight: str =
 SOURCE_LABEL_MAP = {
     "youtube.com": ("YouTube", "#FF0000"),
     "youtu.be": ("YouTube", "#FF0000"),
+    "instagram.com": ("Instagram", "#E1306C"),
     "wikipedia.org": ("Wikipedia", "#636466"),
     "github.com": ("GitHub", "#8B5CF6"),
     "medium.com": ("Medium", "#00AB6C"),
@@ -380,7 +438,12 @@ def auto_label_source(note_id: str, url: str):
     """Auto-create and assign a label based on the source URL domain."""
     from urllib.parse import urlparse
     try:
-        domain = urlparse(url).netloc.lower().replace("www.", "").replace("m.", "")
+        raw_domain = urlparse(url).netloc.lower()
+        # Strip common subdomains (only from start)
+        for prefix in ("www.", "m.", "mobile."):
+            if raw_domain.startswith(prefix):
+                raw_domain = raw_domain[len(prefix):]
+        domain = raw_domain
 
         label_name = None
         label_color = "#9093ff"  # default
