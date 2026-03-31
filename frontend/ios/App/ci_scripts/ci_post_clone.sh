@@ -18,6 +18,7 @@ npm ci
 
 # Build the frontend with production env vars
 echo "🔨 Building frontend..."
+DOCKER_BUILD=1 \
 VITE_API_BASE_URL=https://app.aether.relayhaus.org/api/v1 \
 VITE_FIREBASE_API_KEY=AIzaSyAtsugssSQD9A9GKj6rMQewJdpYpQCS1ro \
 VITE_FIREBASE_AUTH_DOMAIN=aether-8717a.firebaseapp.com \
