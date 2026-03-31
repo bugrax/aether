@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aether Extension - Privacy Policy</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; max-width: 680px; margin: 40px auto; padding: 0 20px; line-height: 1.7; color: #333; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.15rem; margin-top: 1.5em; }
+    p, li { font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <h1>Aether Extension - Privacy Policy</h1>
+  <p><strong>Last updated:</strong> March 29, 2026</p>
+
+  <h2>What data we collect</h2>
+  <p>The Aether extension collects the following data only when you explicitly take action:</p>
+  <ul>
+    <li><strong>Page URLs</strong> - Only when you click "Save to Aether" or use the context menu. We never collect browsing history passively.</li>
+    <li><strong>Authentication token</strong> - Your Firebase authentication token is stored locally in the browser's session storage to authenticate API requests. It is never shared with third parties.</li>
+  </ul>
+
+  <h2>How we use your data</h2>
+  <ul>
+    <li>Page URLs you save are sent to the Aether backend (app.aether.relayhaus.org) for content extraction and AI-powered summarization.</li>
+    <li>Search queries you type in the extension popup are sent to the Aether backend to return results from your personal vault.</li>
+    <li>All data is associated with your authenticated account and is not shared with other users or third parties.</li>
+  </ul>
+
+  <h2>Data storage</h2>
+  <ul>
+    <li>Authentication tokens are stored in <code>chrome.storage.session</code> (cleared when browser closes).</li>
+    <li>Recent notes cache and preferences are stored locally in <code>chrome.storage.local</code>.</li>
+    <li>No data is sold, shared, or used for advertising purposes.</li>
+  </ul>
+
+  <h2>Permissions</h2>
+  <ul>
+    <li><strong>activeTab</strong> - To read the URL of the current tab when you click the extension icon.</li>
+    <li><strong>contextMenus</strong> - To add "Save to Aether" to the right-click menu.</li>
+    <li><strong>storage</strong> - To store your authentication token and preferences locally.</li>
+    <li><strong>notifications</strong> - To notify you when URL processing completes.</li>
+    <li><strong>alarms</strong> - To poll for processing status updates.</li>
+    <li><strong>scripting</strong> - To extract your authentication token from the Aether webapp.</li>
+  </ul>
+
+  <h2>Contact</h2>
+  <p>For questions about this privacy policy, contact: <strong>bugracakmak@gmail.com</strong></p>
+</body>
+</html>

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Aether – Knowledge Vault",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Save any URL to your Aether vault. AI extracts, summarizes, and organizes it.",
   "icons": {
     "16": "icons/icon-16.png",
