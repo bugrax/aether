@@ -7,6 +7,7 @@ and executed by the Celery worker.
 
 import os
 import ssl
+import subprocess
 import logging
 from datetime import datetime, timezone
 
@@ -229,6 +230,10 @@ def _extract_instagram(url: str) -> dict:
 
     if not content:
         content = f"Instagram post: {url}"
+
+    # Truncate title to fit DB column (varchar 500)
+    if len(title) > 450:
+        title = title[:450] + "..."
 
     return {"title": title, "content": content, "thumbnail": thumbnail}
 
