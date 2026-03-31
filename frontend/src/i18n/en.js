@@ -73,6 +73,9 @@ export const en = {
   "ai_language": "AI Insight Language",
   "ai_language_desc": "Choose the language for AI-generated summaries and insights",
   "ai_lang_auto": "Same as app",
+  "share_public": "Share",
+  "copy_link": "Copy Link",
+  "link_copied": "Copied!",
 
   // Vault - Date Groups & Sorting
   "today": "Today",

@@ -73,6 +73,9 @@ export const tr = {
   "ai_language": "AI Özet Dili",
   "ai_language_desc": "AI tarafından oluşturulan özetler ve içgörüler için dil seçin",
   "ai_lang_auto": "Uygulama ile aynı",
+  "share_public": "Paylaş",
+  "copy_link": "Linki Kopyala",
+  "link_copied": "Kopyalandı!",
 
   // Vault - Date Groups & Sorting
   "today": "Bugün",

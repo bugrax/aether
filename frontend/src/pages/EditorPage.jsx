@@ -287,14 +287,44 @@ export default function EditorPage() {
                 {note?.source_url && (
                   <button
                     className="editor-delete-btn"
-                    onClick={() => {
-                      if (navigator.share) {
-                        navigator.share({ title: note.title, url: note.source_url });
-                      } else {
-                        navigator.clipboard.writeText(note.source_url);
+                    onClick={() => window.open(note.source_url, '_system')}
+                    title={t('source_material')}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                  </button>
+                )}
+                {note?.ai_insight && (
+                  <button
+                    className="editor-delete-btn"
+                    onClick={async () => {
+                      let shareToken = note.share_token;
+                      if (!shareToken) {
+                        const res = await notesAPI.toggleShare(note.id);
+                        shareToken = res.share_token;
+                        note.share_token = shareToken;
+                      }
+                      if (shareToken) {
+                        const url = `${window.location.origin}/s/${shareToken}`;
+                        try {
+                          await navigator.clipboard.writeText(url);
+                        } catch {
+                          // Fallback for iOS
+                          const ta = document.createElement('textarea');
+                          ta.value = url;
+                          document.body.appendChild(ta);
+                          ta.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(ta);
+                        }
+                        if (navigator.share) {
+                          navigator.share({ title: note.title, url });
+                        }
                       }
                     }}
-                    title={t('share')}
+                    title={t('share_public')}
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" />
@@ -553,35 +583,41 @@ function AIInsightView({ insight, sourceUrl, noteId, shareToken, t }) {
     i++;
   }
 
+  const [copied, setCopied] = useState(false);
+
   async function handleShareInsight() {
-    if (!token) {
-      // Create public share link
-      setSharing(true);
-      try {
+    setSharing(true);
+    try {
+      let tk = token;
+      if (!tk) {
         const { notesAPI } = await import('../api');
         const res = await notesAPI.toggleShare(noteId);
-        if (res.share_token) {
-          setToken(res.share_token);
-          const url = `${window.location.origin}/s/${res.share_token}`;
-          if (navigator.share) {
-            navigator.share({ title: 'Aether Insight', url });
-          } else {
+        tk = res.share_token;
+        setToken(tk);
+      }
+      if (tk) {
+        const url = `${window.location.origin}/s/${tk}`;
+        if (navigator.share) {
+          await navigator.share({ title: 'Aether Insight', url });
+        } else {
+          try {
             await navigator.clipboard.writeText(url);
+          } catch {
+            const ta = document.createElement('textarea');
+            ta.value = url;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
           }
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
         }
-      } catch (e) {
-        console.error('Share failed:', e);
-      } finally {
-        setSharing(false);
       }
-    } else {
-      // Already shared — share existing link
-      const url = `${window.location.origin}/s/${token}`;
-      if (navigator.share) {
-        navigator.share({ title: 'Aether Insight', url });
-      } else {
-        await navigator.clipboard.writeText(url);
-      }
+    } catch (e) {
+      console.error('Share failed:', e);
+    } finally {
+      setSharing(false);
     }
   }
 
@@ -602,7 +638,7 @@ function AIInsightView({ insight, sourceUrl, noteId, shareToken, t }) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" />
           </svg>
-          {sharing ? '...' : token ? t('share_link_copy') || 'Copy Link' : t('share')}
+          {sharing ? '...' : copied ? t('link_copied') : token ? t('copy_link') : t('share_public')}
         </button>
       </div>
 
