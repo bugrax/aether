@@ -564,7 +564,7 @@ function AIInsightView({ insight, sourceUrl, noteId, shareToken, t }) {
         const res = await notesAPI.toggleShare(noteId);
         if (res.share_token) {
           setToken(res.share_token);
-          const url = `${window.location.origin}/shared/${res.share_token}`;
+          const url = `${window.location.origin}/s/${res.share_token}`;
           if (navigator.share) {
             navigator.share({ title: 'Aether Insight', url });
           } else {
@@ -578,7 +578,7 @@ function AIInsightView({ insight, sourceUrl, noteId, shareToken, t }) {
       }
     } else {
       // Already shared — share existing link
-      const url = `${window.location.origin}/shared/${token}`;
+      const url = `${window.location.origin}/s/${token}`;
       if (navigator.share) {
         navigator.share({ title: 'Aether Insight', url });
       } else {
