@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Aether – Knowledge Vault",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Save any URL to your Aether vault. AI extracts, summarizes, and organizes it.",
   "icons": {
     "16": "icons/icon-16.png",
@@ -34,14 +34,14 @@
   ],
 
   "host_permissions": [
-    "https://aether.relayhaus.org/*",
+    "https://app.aether.relayhaus.org/*",
     "http://localhost:8080/*"
   ],
 
   "content_scripts": [
     {
       "matches": [
-        "https://aether.relayhaus.org/*",
+        "https://app.aether.relayhaus.org/*",
         "http://localhost:5173/*"
       ],
       "js": ["content/token-bridge.js"],
@@ -63,7 +63,7 @@
 
   "externally_connectable": {
     "matches": [
-      "https://aether.relayhaus.org/*",
+      "https://app.aether.relayhaus.org/*",
       "http://localhost:5173/*"
     ]
   }

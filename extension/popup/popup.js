@@ -337,7 +337,7 @@ function createNoteCard(note) {
 
 signInBtn.addEventListener('click', async () => {
   // Try to extract token from any open Aether tab first
-  const tabs = await chrome.tabs.query({ url: ['https://aether.relayhaus.org/*', 'http://localhost:5173/*'] });
+  const tabs = await chrome.tabs.query({ url: ['https://app.aether.relayhaus.org/*', 'http://localhost:5173/*'] });
   if (tabs.length > 0) {
     try {
       // Execute script in the Aether tab to read Firebase token from IndexedDB

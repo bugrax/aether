@@ -172,7 +172,7 @@ async function pollNoteStatus(noteId) {
 
 async function requestTokenRefresh() {
   // Try to get a fresh token by messaging any open Aether tab
-  const tabs = await chrome.tabs.query({ url: ['https://aether.relayhaus.org/*', 'http://localhost:5173/*'] });
+  const tabs = await chrome.tabs.query({ url: ['https://app.aether.relayhaus.org/*', 'http://localhost:5173/*'] });
 
   if (tabs.length > 0) {
     // Ask the webapp to send a fresh token
