@@ -215,44 +215,61 @@ def _extract_instagram(url: str) -> dict:
     except Exception as e:
         logger.warning(f"Instagram og tag extraction failed: {e}")
 
-    # Step 2: Download images/video with yt-dlp for Gemini analysis
+    # Step 2: Collect image URLs from yt-dlp metadata + og:image
+    image_urls = []
+    try:
+        dl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+        with yt_dlp.YoutubeDL(dl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info:
+                if info.get("description") and len(info.get("description", "")) > len(content):
+                    content = info["description"]
+                if info.get("title") and title == "Instagram Post":
+                    title = info["title"]
+                if not thumbnail and info.get("thumbnail"):
+                    thumbnail = info["thumbnail"]
+                # Collect all thumbnail URLs from carousel entries
+                for entry in info.get("entries", [info]):
+                    for thumb in entry.get("thumbnails", []):
+                        if thumb.get("url"):
+                            image_urls.append(thumb["url"])
+                    if entry.get("thumbnail") and entry["thumbnail"] not in image_urls:
+                        image_urls.append(entry["thumbnail"])
+    except Exception as e:
+        logger.warning(f"Instagram yt-dlp metadata failed: {e}")
+
+    # Add og:image if we got one and it's not already in the list
+    if thumbnail and thumbnail not in image_urls:
+        image_urls.insert(0, thumbnail)
+
+    # Step 3: Download images and analyze with Gemini vision
     tmp_dir = f"/tmp/aether_ig_{_uuid.uuid4().hex}"
     os.makedirs(tmp_dir, exist_ok=True)
     downloaded_files = []
 
-    try:
-        dl_opts = {
-            "outtmpl": f"{tmp_dir}/%(autonumber)03d.%(ext)s",
-            "quiet": True,
-            "no_warnings": True,
-            "write_thumbnail": True,
-        }
-        with yt_dlp.YoutubeDL(dl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            if info and not thumbnail and info.get("thumbnail"):
-                thumbnail = info["thumbnail"]
-            # Get description from yt-dlp if og tags didn't have it
-            if info and info.get("description") and len(info["description"]) > len(content):
-                content = info["description"]
-            if info and info.get("title") and title == "Instagram Post":
-                title = info["title"]
+    for i, img_url in enumerate(image_urls[:15]):
+        try:
+            resp = requests.get(img_url, headers=headers, timeout=10, verify=certifi.where())
+            if resp.status_code == 200 and len(resp.content) > 1000:
+                ext = "jpg"
+                if "png" in resp.headers.get("content-type", ""):
+                    ext = "png"
+                elif "webp" in resp.headers.get("content-type", ""):
+                    ext = "webp"
+                path = f"{tmp_dir}/{i:03d}.{ext}"
+                with open(path, "wb") as f:
+                    f.write(resp.content)
+                downloaded_files.append(path)
+        except Exception:
+            continue
 
-        # Collect downloaded image files
-        for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
-            downloaded_files.extend(glob.glob(f"{tmp_dir}/{ext}"))
-        downloaded_files.sort()
+    logger.info(f"📸 Instagram: downloaded {len(downloaded_files)} images from {url}")
 
-        logger.info(f"📸 Instagram: downloaded {len(downloaded_files)} images from {url}")
-    except Exception as e:
-        logger.warning(f"Instagram yt-dlp download failed: {e}")
-
-    # Step 3: Analyze images with Gemini vision
     if downloaded_files:
-        vision_text = _analyze_images_with_gemini(downloaded_files[:10])  # max 10 images
+        vision_text = _analyze_images_with_gemini(downloaded_files[:10])
         if vision_text:
             content = content + "\n\n--- Image Analysis ---\n" + vision_text if content else vision_text
 
-    # Cleanup
     import shutil
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -302,11 +319,18 @@ def _analyze_images_with_gemini(image_paths: list) -> str:
         ]
 
         prompt = (
-            "Analyze these images from an Instagram post. For each image:\n"
-            "1. Extract ALL visible text (OCR)\n"
-            "2. Describe what the image shows\n"
-            "3. Identify any key information, data, names, or topics\n\n"
-            "Provide a comprehensive summary combining all images into a coherent description."
+            "You are analyzing images from a social media post. These may be infographics, "
+            "collages, lists, or carousel slides.\n\n"
+            "For EACH image, meticulously:\n"
+            "1. **OCR**: Extract EVERY piece of visible text — titles, names, labels, captions, "
+            "dates, numbers, hashtags. Miss nothing.\n"
+            "2. **Items/Entities**: If the image is a collage or grid (e.g. movies, books, albums, "
+            "people, products), list EVERY item shown with its name/title. Use the format:\n"
+            "   - Item Name (any additional context like year, author)\n"
+            "3. **Structure**: Note the overall theme, time period, category, or heading "
+            "(e.g. '1900s', 'Top 10', 'Best of 2024').\n\n"
+            "Output a COMPLETE structured extraction per image. "
+            "Do NOT summarize or skip items — list everything visible."
         )
 
         response = model.generate_content(
