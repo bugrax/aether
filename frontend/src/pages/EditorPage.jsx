@@ -613,10 +613,10 @@ function AIInsightView({ insight, sourceUrl, noteId, shareToken, t }) {
       </div>
 
       {sourceUrl && (
-        <div className="ai-source">
+        <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="ai-source" style={{ textDecoration: 'none', display: 'block' }}>
           <span className="ai-source-label">{t('source_material')}</span>
-          <span className="ai-source-title">{sourceUrl}</span>
-        </div>
+          <span className="ai-source-title" style={{ color: 'var(--secondary)' }}>{sourceUrl}</span>
+        </a>
       )}
     </div>
   );
