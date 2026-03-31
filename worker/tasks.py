@@ -219,9 +219,11 @@ def _extract_instagram(url: str) -> dict:
                         if content:
                             first_line = content.split("\n")[0][:100]
                             title = f'{owner}: "{first_line}"'
-                    # Thumbnail
+                    # Thumbnail / display image
                     if post.get("displayUrl"):
                         thumbnail = post["displayUrl"]
+                        if thumbnail not in image_urls:
+                            image_urls.append(thumbnail)
                     # All carousel image URLs
                     for img in post.get("images", []):
                         if img and img not in image_urls:
