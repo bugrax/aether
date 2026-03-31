@@ -95,6 +95,7 @@ func main() {
 
 	// ── Public Routes (No Auth) ───────────────────────
 	r.GET("/api/v1/shared/:token", handlers.GetSharedNote)
+	r.GET("/s/:token", handlers.GetSharedNoteOG)
 
 	// ── API v1 Routes (Protected) ─────────────────────
 	v1 := r.Group("/api/v1")

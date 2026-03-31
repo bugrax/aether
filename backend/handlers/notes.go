@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/bugracakmak/aether-api/database"
 	"github.com/bugracakmak/aether-api/middleware"
@@ -349,4 +351,69 @@ func GetSharedNote(c *gin.Context) {
 		"created_at":    note.CreatedAt,
 		"status":        note.Status,
 	})
+}
+
+// GetSharedNoteOG returns an HTML page with OG meta tags for link previews.
+func GetSharedNoteOG(c *gin.Context) {
+	token := c.Param("token")
+
+	var note models.Note
+	if err := database.DB.Where("share_token = ? AND share_token != ''", token).
+		First(&note).Error; err != nil {
+		c.Redirect(302, "https://aether.relayhaus.org")
+		return
+	}
+
+	// Extract first ~200 chars of AI insight as description
+	desc := note.AIInsight
+	if len(desc) > 200 {
+		desc = desc[:200] + "..."
+	}
+	// Strip markdown
+	for _, ch := range []string{"#", "*", "|", "`", ">", "---"} {
+		desc = strings.ReplaceAll(desc, ch, "")
+	}
+
+	thumbnail := note.ThumbnailURL
+	if strings.HasPrefix(thumbnail, "data:") {
+		thumbnail = "" // Can't use data URI in og:image
+	}
+
+	appURL := "https://app.aether.relayhaus.org/shared/" + token
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>%s — Aether</title>
+<meta property="og:title" content="%s" />
+<meta property="og:description" content="%s" />
+<meta property="og:type" content="article" />
+<meta property="og:url" content="%s" />
+<meta property="og:site_name" content="Aether" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="%s" />
+<meta name="twitter:description" content="%s" />
+%s
+<meta http-equiv="refresh" content="0;url=%s" />
+</head><body>Redirecting...</body></html>`,
+		escapeHTML(note.Title), escapeHTML(note.Title), escapeHTML(desc),
+		appURL, escapeHTML(note.Title), escapeHTML(desc),
+		ogImage(thumbnail), appURL)
+
+	c.Data(200, "text/html; charset=utf-8", []byte(html))
+}
+
+func escapeHTML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
+}
+
+func ogImage(url string) string {
+	if url == "" {
+		return ""
+	}
+	return fmt.Sprintf(`<meta property="og:image" content="%s" />`, escapeHTML(url))
 }

@@ -106,7 +106,11 @@ export default function SharedNotePage() {
         if (!res.ok) throw new Error('Not found');
         return res.json();
       })
-      .then(setNote)
+      .then(data => {
+        setNote(data);
+        // Set browser tab title
+        document.title = data.title ? `${data.title} — Aether` : 'Shared — Aether';
+      })
       .catch(() => setError('This shared note does not exist or has been removed.'))
       .finally(() => setLoading(false));
   }, [token]);
