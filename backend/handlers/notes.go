@@ -304,3 +304,49 @@ func UpdateNoteLabels(c *gin.Context) {
 	database.DB.Preload("Labels").First(&note, "id = ?", note.ID)
 	c.JSON(http.StatusOK, note)
 }
+
+// ToggleShare creates or removes a public share token for a note.
+func ToggleShare(c *gin.Context) {
+	user := middleware.GetUser(c)
+	noteID := c.Param("id")
+
+	var note models.Note
+	if err := database.DB.Where("id = ? AND user_id = ?", noteID, user.ID).First(&note).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Note not found"})
+		return
+	}
+
+	if note.ShareToken != "" {
+		// Remove share
+		database.DB.Model(&note).Update("share_token", "")
+		c.JSON(http.StatusOK, gin.H{"shared": false, "share_token": ""})
+	} else {
+		// Create share token
+		token := uuid.New().String()[:8] + uuid.New().String()[:8]
+		database.DB.Model(&note).Update("share_token", token)
+		c.JSON(http.StatusOK, gin.H{"shared": true, "share_token": token})
+	}
+}
+
+// GetSharedNote returns a note by its public share token (no auth required).
+func GetSharedNote(c *gin.Context) {
+	token := c.Param("token")
+
+	var note models.Note
+	if err := database.DB.Where("share_token = ? AND share_token != ''", token).
+		Preload("Labels").First(&note).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Shared note not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"title":         note.Title,
+		"content":       note.Content,
+		"ai_insight":    note.AIInsight,
+		"source_url":    note.SourceURL,
+		"thumbnail_url": note.ThumbnailURL,
+		"labels":        note.Labels,
+		"created_at":    note.CreatedAt,
+		"status":        note.Status,
+	})
+}

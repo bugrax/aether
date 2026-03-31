@@ -381,7 +381,7 @@ export default function EditorPage() {
         )}
 
         {activeTab === 'ai' && note?.ai_insight && (
-          <AIInsightView insight={note.ai_insight} sourceUrl={note.source_url} t={t} />
+          <AIInsightView insight={note.ai_insight} sourceUrl={note.source_url} noteId={note.id} shareToken={note.share_token} t={t} />
         )}
 
         {activeTab === 'history' && note && (
@@ -456,7 +456,10 @@ function parseTable(lines, startIndex) {
 }
 
 // ── AI Insight Sub-view ───────────────────────────────
-function AIInsightView({ insight, sourceUrl, t }) {
+function AIInsightView({ insight, sourceUrl, noteId, shareToken, t }) {
+  const [token, setToken] = useState(shareToken || '');
+  const [sharing, setSharing] = useState(false);
+
   const lines = insight.split('\n');
   const elements = [];
   let i = 0;
@@ -552,17 +555,35 @@ function AIInsightView({ insight, sourceUrl, t }) {
     i++;
   }
 
-  function handleShareInsight() {
-    const text = insight.replace(/[#*|_~`>-]/g, '').replace(/\n{3,}/g, '\n\n').trim();
-    const shareData = {
-      title: 'Aether AI Insight',
-      text: text.substring(0, 500),
-      ...(sourceUrl ? { url: sourceUrl } : {}),
-    };
-    if (navigator.share) {
-      navigator.share(shareData);
+  async function handleShareInsight() {
+    if (!token) {
+      // Create public share link
+      setSharing(true);
+      try {
+        const { notesAPI } = await import('../api');
+        const res = await notesAPI.toggleShare(noteId);
+        if (res.share_token) {
+          setToken(res.share_token);
+          const url = `${window.location.origin}/shared/${res.share_token}`;
+          if (navigator.share) {
+            navigator.share({ title: 'Aether Insight', url });
+          } else {
+            await navigator.clipboard.writeText(url);
+          }
+        }
+      } catch (e) {
+        console.error('Share failed:', e);
+      } finally {
+        setSharing(false);
+      }
     } else {
-      navigator.clipboard.writeText(sourceUrl || text.substring(0, 1000));
+      // Already shared — share existing link
+      const url = `${window.location.origin}/shared/${token}`;
+      if (navigator.share) {
+        navigator.share({ title: 'Aether Insight', url });
+      } else {
+        await navigator.clipboard.writeText(url);
+      }
     }
   }
 
@@ -583,7 +604,7 @@ function AIInsightView({ insight, sourceUrl, t }) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" />
           </svg>
-          {t('share')}
+          {sharing ? '...' : token ? t('share_link_copy') || 'Copy Link' : t('share')}
         </button>
       </div>
 

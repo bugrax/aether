@@ -47,6 +47,7 @@ export const notesAPI = {
   revisions: (id) => request('GET', `/notes/${id}/revisions`),
   updateLabels: (id, labelIds) => request('PUT', `/notes/${id}/labels`, { label_ids: labelIds }),
   shareURL: (url) => request('POST', '/share', { url }),
+  toggleShare: (id) => request('POST', `/notes/${id}/share`),
   search: (query) => request('GET', `/search?q=${encodeURIComponent(query)}`),
 
   // SSE — stream note status updates

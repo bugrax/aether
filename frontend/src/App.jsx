@@ -9,6 +9,7 @@ import VaultPage from './pages/VaultPage';
 import EditorPage from './pages/EditorPage';
 import SharePage from './pages/SharePage';
 import SettingsPage from './pages/SettingsPage';
+import SharedNotePage from './pages/SharedNotePage';
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -74,6 +75,7 @@ function AppRoutes() {
           )
         }
       />
+      <Route path="/shared/:token" element={<SharedNotePage />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/vault" element={<VaultPage />} />
         <Route path="/vault/:id" element={<EditorPage />} />

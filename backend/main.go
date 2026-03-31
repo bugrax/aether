@@ -93,6 +93,9 @@ func main() {
 		})
 	})
 
+	// ── Public Routes (No Auth) ───────────────────────
+	r.GET("/api/v1/shared/:token", handlers.GetSharedNote)
+
 	// ── API v1 Routes (Protected) ─────────────────────
 	v1 := r.Group("/api/v1")
 	v1.Use(middleware.AuthRequired())
@@ -105,6 +108,7 @@ func main() {
 		v1.DELETE("/notes/:id", handlers.DeleteNote)
 		v1.GET("/notes/:id/revisions", handlers.GetNoteRevisions)
 		v1.PUT("/notes/:id/labels", handlers.UpdateNoteLabels)
+		v1.POST("/notes/:id/share", handlers.ToggleShare)
 
 		// User Settings
 		v1.GET("/user/settings", handlers.GetSettings)
