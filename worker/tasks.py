@@ -182,7 +182,11 @@ def _transcribe_audio_with_gemini(url: str) -> str:
 
 
 def _extract_instagram(url: str) -> dict:
-    """Extract Instagram post/reel content using og tags and yt-dlp."""
+    """Extract Instagram post/reel content using og tags, yt-dlp, and Gemini vision."""
+    import yt_dlp
+    import uuid as _uuid
+    import glob
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
         "Accept-Language": "en-US,en;q=0.9",
@@ -192,7 +196,7 @@ def _extract_instagram(url: str) -> dict:
     content = ""
     thumbnail = ""
 
-    # Try to get og tags from the page (works without login)
+    # Step 1: Get og tags (works without login)
     try:
         response = requests.get(url, headers=headers, timeout=15, verify=certifi.where())
         soup = BeautifulSoup(response.text, "html.parser")
@@ -211,31 +215,113 @@ def _extract_instagram(url: str) -> dict:
     except Exception as e:
         logger.warning(f"Instagram og tag extraction failed: {e}")
 
-    # Try yt-dlp for video/reel description
+    # Step 2: Download images/video with yt-dlp for Gemini analysis
+    tmp_dir = f"/tmp/aether_ig_{_uuid.uuid4().hex}"
+    os.makedirs(tmp_dir, exist_ok=True)
+    downloaded_files = []
+
     try:
-        result = subprocess.run(
-            ["yt-dlp", "--no-download", "--print", "%(title)s|||%(description)s|||%(thumbnail)s", url],
-            capture_output=True, text=True, timeout=30
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            parts = result.stdout.strip().split("|||")
-            if len(parts) >= 1 and parts[0] and parts[0] != "NA":
-                title = parts[0]
-            if len(parts) >= 2 and parts[1] and parts[1] != "NA":
-                content = parts[1]
-            if len(parts) >= 3 and parts[2] and parts[2] != "NA":
-                thumbnail = parts[2]
+        dl_opts = {
+            "outtmpl": f"{tmp_dir}/%(autonumber)03d.%(ext)s",
+            "quiet": True,
+            "no_warnings": True,
+            "write_thumbnail": True,
+        }
+        with yt_dlp.YoutubeDL(dl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if info and not thumbnail and info.get("thumbnail"):
+                thumbnail = info["thumbnail"]
+            # Get description from yt-dlp if og tags didn't have it
+            if info and info.get("description") and len(info["description"]) > len(content):
+                content = info["description"]
+            if info and info.get("title") and title == "Instagram Post":
+                title = info["title"]
+
+        # Collect downloaded image files
+        for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+            downloaded_files.extend(glob.glob(f"{tmp_dir}/{ext}"))
+        downloaded_files.sort()
+
+        logger.info(f"📸 Instagram: downloaded {len(downloaded_files)} images from {url}")
     except Exception as e:
-        logger.warning(f"Instagram yt-dlp extraction failed: {e}")
+        logger.warning(f"Instagram yt-dlp download failed: {e}")
+
+    # Step 3: Analyze images with Gemini vision
+    if downloaded_files:
+        vision_text = _analyze_images_with_gemini(downloaded_files[:10])  # max 10 images
+        if vision_text:
+            content = content + "\n\n--- Image Analysis ---\n" + vision_text if content else vision_text
+
+    # Cleanup
+    import shutil
+    shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if not content:
         content = f"Instagram post: {url}"
 
-    # Truncate title to fit DB column (varchar 500)
     if len(title) > 450:
         title = title[:450] + "..."
 
     return {"title": title, "content": content, "thumbnail": thumbnail}
+
+
+def _analyze_images_with_gemini(image_paths: list) -> str:
+    """Analyze images using Gemini vision to extract text and describe content."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        logger.warning("No GEMINI_API_KEY set, skipping image analysis.")
+        return ""
+
+    import google.generativeai as genai
+    from PIL import Image
+
+    genai.configure(api_key=api_key)
+
+    try:
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        # Load images
+        images = []
+        for path in image_paths:
+            try:
+                img = Image.open(path)
+                images.append(img)
+            except Exception:
+                continue
+
+        if not images:
+            return ""
+
+        logger.info(f"🔍 Analyzing {len(images)} images with Gemini vision...")
+
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+        ]
+
+        prompt = (
+            "Analyze these images from an Instagram post. For each image:\n"
+            "1. Extract ALL visible text (OCR)\n"
+            "2. Describe what the image shows\n"
+            "3. Identify any key information, data, names, or topics\n\n"
+            "Provide a comprehensive summary combining all images into a coherent description."
+        )
+
+        response = model.generate_content(
+            [prompt] + images,
+            safety_settings=safety_settings,
+        )
+
+        if not response.candidates:
+            return ""
+
+        return response.text
+
+    except Exception as e:
+        logger.warning(f"⚠️ Gemini vision analysis failed: {e}")
+        return ""
 
 
 def _extract_article(url: str) -> dict:
