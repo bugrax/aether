@@ -205,7 +205,7 @@ def _extract_instagram(url: str) -> dict:
                 json={"directUrls": [url], "resultsType": "posts", "resultsLimit": 1},
                 timeout=120,
             )
-            if resp.status_code == 200:
+            if resp.status_code in (200, 201):
                 posts = resp.json()
                 if posts and len(posts) > 0:
                     post = posts[0]
