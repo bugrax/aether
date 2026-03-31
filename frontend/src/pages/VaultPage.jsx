@@ -6,17 +6,17 @@ import { stripHTML } from '../components/editor/editorUtils';
 
 // ── Date Helpers ─────────────────────────────────────
 
-function formatDate(dateStr) {
+function formatDate(dateStr, t) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
   const now = new Date();
   const diffMs = now - d;
   const diffMin = Math.floor(diffMs / 60000);
   const diffHr = Math.floor(diffMin / 60);
-  
-  if (diffMin < 1) return 'Just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
+
+  if (diffMin < 1) return t('just_now');
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffHr < 24) return `${diffHr}h`;
 
   return d.toLocaleDateString(undefined, {
     month: 'short',
@@ -25,15 +25,15 @@ function formatDate(dateStr) {
   });
 }
 
-function getDateGroup(dateStr) {
-  if (!dateStr) return 'Unknown';
+function getDateGroup(dateStr, t) {
+  if (!dateStr) return '';
   const d = new Date(dateStr);
   const now = new Date();
   const diffDays = Math.floor((now - d) / 86400000);
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays <= 7) return 'This Week';
-  if (diffDays <= 30) return 'This Month';
+  if (diffDays === 0) return t('today');
+  if (diffDays === 1) return t('yesterday');
+  if (diffDays <= 7) return t('this_week');
+  if (diffDays <= 30) return t('this_month');
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 }
 
@@ -94,7 +94,7 @@ function NoteCard({ note, onClick, onRequestDelete, t }) {
         {note.content ? stripHTML(note.content).substring(0, 150) + '...' : t('no_content_yet')}
       </p>
       <div className="note-card-meta">
-        <span className="note-card-date">{formatDate(note.updated_at)}</span>
+        <span className="note-card-date">{formatDate(note.updated_at, t)}</span>
         <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
           <button
             className="note-delete-btn"
@@ -188,17 +188,17 @@ function DeleteConfirmModal({ note, isOpen, isDeleting, onConfirm, onCancel, t }
 // ── Sort & Filter Config ─────────────────────────────
 
 const SORT_OPTIONS = [
-  { value: 'newest', label: 'Newest First', icon: '↓' },
-  { value: 'oldest', label: 'Oldest First', icon: '↑' },
-  { value: 'title', label: 'Title A–Z', icon: '🔤' },
+  { value: 'newest', key: 'sort_newest', icon: '↓' },
+  { value: 'oldest', key: 'sort_oldest', icon: '↑' },
+  { value: 'title', key: 'sort_title', icon: '🔤' },
 ];
 
 const STATUS_FILTERS = [
-  { value: '', label: 'All' },
-  { value: 'ready', label: 'Ready' },
-  { value: 'processing', label: 'Processing' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'error', label: 'Error' },
+  { value: '', key: 'filter_all' },
+  { value: 'ready', key: 'filter_ready' },
+  { value: 'processing', key: 'filter_processing' },
+  { value: 'draft', key: 'filter_draft' },
+  { value: 'error', key: 'filter_error' },
 ];
 
 // ── Main Component ───────────────────────────────────
@@ -368,7 +368,7 @@ export default function VaultPage() {
 
   // Group by date
   const grouped = processedNotes.reduce((acc, note) => {
-    const group = getDateGroup(note.updated_at);
+    const group = getDateGroup(note.updated_at, t);
     if (!acc[group]) acc[group] = [];
     acc[group].push(note);
     return acc;
@@ -435,9 +435,9 @@ export default function VaultPage() {
       {/* Search result info */}
       {isSearchActive && !searching && (
         <div className="search-result-info">
-          <span>{processedNotes.length} {processedNotes.length === 1 ? 'result' : 'results'} for "{search}"</span>
+          <span>{processedNotes.length} {processedNotes.length === 1 ? t('result_count_one') : t('result_count_other')} — "{search}"</span>
           <button className="search-result-clear" onClick={clearSearch}>
-            Clear search
+            {t('clear_search')}
           </button>
         </div>
       )}
@@ -451,7 +451,7 @@ export default function VaultPage() {
             onChange={(e) => setSortBy(e.target.value)}
           >
             {SORT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.icon} {opt.label}</option>
+              <option key={opt.value} value={opt.value}>{opt.icon} {t(opt.key)}</option>
             ))}
           </select>
 
@@ -461,7 +461,7 @@ export default function VaultPage() {
             onChange={(e) => setStatusFilter(e.target.value)}
           >
             {STATUS_FILTERS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              <option key={opt.value} value={opt.value}>{t(opt.key)}</option>
             ))}
           </select>
 
@@ -469,14 +469,14 @@ export default function VaultPage() {
             <button
               className={`vault-view-btn ${viewMode === 'grouped' ? 'active' : ''}`}
               onClick={() => setViewMode('grouped')}
-              title="Grouped view"
+              title={t('grouped_view')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
             </button>
             <button
               className={`vault-view-btn ${viewMode === 'flat' ? 'active' : ''}`}
               onClick={() => setViewMode('flat')}
-              title="Flat view"
+              title={t('flat_view')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>

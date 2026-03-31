@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const { t } = useLanguage();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -51,7 +53,7 @@ export default function LoginPage() {
           letterSpacing: '0.02em',
           marginBottom: 'var(--space-4)',
         }}>
-          Where links become knowledge
+          {t('tagline')}
         </p>
         <p style={{
           color: 'var(--on-surface-variant)',
@@ -60,9 +62,9 @@ export default function LoginPage() {
           maxWidth: '400px',
           lineHeight: 1.7,
           margin: '0 auto',
+          whiteSpace: 'pre-line',
         }}>
-          Save any link. AI extracts, summarizes, and organizes it.<br />
-          Your personal knowledge engine — always searchable, always yours.
+          {t('login_desc')}
         </p>
       </div>
 
@@ -73,7 +75,7 @@ export default function LoginPage() {
         style={{ fontSize: '1rem', padding: 'var(--space-3) var(--space-8)' }}
         id="login-google"
       >
-        {loading ? 'Signing in...' : 'Sign in with Google'}
+        {loading ? t('signing_in') : t('sign_in_google')}
       </button>
 
       {error && (
@@ -92,7 +94,7 @@ export default function LoginPage() {
       )}
 
       <p style={{ color: 'var(--outline)', fontSize: '0.75rem' }}>
-        Capture · Understand · Remember
+        {t('login_footer')}
       </p>
     </div>
   );

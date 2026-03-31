@@ -166,7 +166,7 @@ export default function EditorPage() {
     const diffMs = Date.now() - lastSaved.getTime();
     const diffMin = Math.floor(diffMs / 60000);
     if (diffMin < 1) return t('autosaved_just_now');
-    return `Auto-saved ${diffMin}m ago`;
+    return t('autosaved_ago').replace('{n}', diffMin);
   }
 
   // Auto-resize title on mount
@@ -593,7 +593,7 @@ function VersionHistoryView({ noteId, currentTitle, t }) {
         {
           id: 'r3',
           version: 1,
-          title: 'Initial Draft',
+          title: t('initial_draft'),
           created_at: new Date(Date.now() - 86400000).toISOString(),
         },
       ]);
@@ -610,10 +610,10 @@ function VersionHistoryView({ noteId, currentTitle, t }) {
     yesterday.setDate(yesterday.getDate() - 1);
     const isYesterday = d.toDateString() === yesterday.toDateString();
 
-    const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    if (isToday) return `Today, ${time}`;
-    if (isYesterday) return `Yesterday, ${time}`;
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + `, ${time}`;
+    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    if (isToday) return `${t('today')}, ${time}`;
+    if (isYesterday) return `${t('yesterday')}, ${time}`;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + `, ${time}`;
   }
 
   if (loading) {
@@ -644,8 +644,8 @@ function VersionHistoryView({ noteId, currentTitle, t }) {
             <div className="history-title">{rev.title || t('untitled')}</div>
             <div className="history-description">
               {i === 0
-                ? 'Current working version'
-                : `Revision snapshot at version ${rev.version}`}
+                ? t('current_working_version')
+                : t('revision_snapshot').replace('{n}', rev.version)}
             </div>
             <div className="history-date">{formatRevisionDate(rev.created_at)}</div>
           </div>

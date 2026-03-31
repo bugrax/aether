@@ -74,6 +74,37 @@ export const en = {
   "ai_language_desc": "Choose the language for AI-generated summaries and insights",
   "ai_lang_auto": "Same as app",
 
+  // Vault - Date Groups & Sorting
+  "today": "Today",
+  "yesterday": "Yesterday",
+  "this_week": "This Week",
+  "this_month": "This Month",
+  "sort_newest": "Newest First",
+  "sort_oldest": "Oldest First",
+  "sort_title": "Title A–Z",
+  "filter_all": "All",
+  "filter_ready": "Ready",
+  "filter_processing": "Processing",
+  "filter_draft": "Draft",
+  "filter_error": "Error",
+  "result_count_one": "result",
+  "result_count_other": "results",
+  "grouped_view": "Grouped view",
+  "flat_view": "Flat view",
+
+  // Login
+  "sign_in_google": "Sign in with Google",
+  "signing_in": "Signing in...",
+  "tagline": "Where links become knowledge",
+  "login_desc": "Save any link. AI extracts, summarizes, and organizes it.\nYour personal knowledge engine — always searchable, always yours.",
+  "login_footer": "Capture · Understand · Remember",
+
+  // Editor extras
+  "autosaved_ago": "Auto-saved {n}m ago",
+  "initial_draft": "Initial Draft",
+  "current_working_version": "Current working version",
+  "revision_snapshot": "Revision snapshot at version {n}",
+
   // Label Picker (Editor)
   "add_label": "Add Label",
   "remove_label": "Remove",

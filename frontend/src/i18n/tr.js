@@ -74,6 +74,37 @@ export const tr = {
   "ai_language_desc": "AI tarafından oluşturulan özetler ve içgörüler için dil seçin",
   "ai_lang_auto": "Uygulama ile aynı",
 
+  // Vault - Date Groups & Sorting
+  "today": "Bugün",
+  "yesterday": "Dün",
+  "this_week": "Bu Hafta",
+  "this_month": "Bu Ay",
+  "sort_newest": "En Yeniler",
+  "sort_oldest": "En Eskiler",
+  "sort_title": "Başlık A–Z",
+  "filter_all": "Tümü",
+  "filter_ready": "Hazır",
+  "filter_processing": "İşleniyor",
+  "filter_draft": "Taslak",
+  "filter_error": "Hata",
+  "result_count_one": "sonuç",
+  "result_count_other": "sonuç",
+  "grouped_view": "Gruplu görünüm",
+  "flat_view": "Düz görünüm",
+
+  // Login
+  "sign_in_google": "Google ile Giriş Yap",
+  "signing_in": "Giriş yapılıyor...",
+  "tagline": "Bağlantılar bilgiye dönüşür",
+  "login_desc": "Herhangi bir bağlantıyı kaydet. Yapay zeka çıkarsın, özetlesin ve düzenlesin.\nKişisel bilgi motorun — her zaman aranabilir, her zaman senin.",
+  "login_footer": "Yakala · Anla · Hatırla",
+
+  // Editor extras
+  "autosaved_ago": "{n}dk önce kaydedildi",
+  "initial_draft": "İlk Taslak",
+  "current_working_version": "Mevcut çalışma versiyonu",
+  "revision_snapshot": "Versiyon {n} anlık görüntüsü",
+
   // Label Picker (Editor)
   "add_label": "Etiket Ekle",
   "remove_label": "Kaldır",
