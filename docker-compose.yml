@@ -82,6 +82,7 @@ services:
       EMBEDDING_URL: http://localhost:8100
       CLAUDE_CLI_PATH: "ssh -o StrictHostKeyChecking=no -i /root/.ssh/id_rsa root@172.17.0.1 /usr/bin/claude"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      APIFY_TOKEN: ${APIFY_TOKEN:-}
     volumes:
       - /root/.ssh:/root/.ssh:ro
     depends_on:

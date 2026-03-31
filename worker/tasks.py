@@ -182,80 +182,87 @@ def _transcribe_audio_with_gemini(url: str) -> str:
 
 
 def _extract_instagram(url: str) -> dict:
-    """Extract Instagram post/reel content using og tags, yt-dlp, and Gemini vision."""
-    import yt_dlp
+    """Extract Instagram post/reel content using Apify scraper + Gemini vision."""
     import uuid as _uuid
-    import glob
+    import shutil
 
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN", "")
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
     }
 
     title = "Instagram Post"
     content = ""
     thumbnail = ""
-
-    # Step 1: Get og tags (works without login)
-    try:
-        response = requests.get(url, headers=headers, timeout=15, verify=certifi.where())
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        og_title = soup.find("meta", property="og:title")
-        if og_title and og_title.get("content"):
-            title = og_title["content"]
-
-        og_desc = soup.find("meta", property="og:description")
-        if og_desc and og_desc.get("content"):
-            content = og_desc["content"]
-
-        og_image = soup.find("meta", property="og:image")
-        if og_image and og_image.get("content"):
-            thumbnail = og_image["content"]
-    except Exception as e:
-        logger.warning(f"Instagram og tag extraction failed: {e}")
-
-    # Step 2: Collect image URLs from yt-dlp metadata + og:image
     image_urls = []
-    try:
-        dl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
-        with yt_dlp.YoutubeDL(dl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if info:
-                if info.get("description") and len(info.get("description", "")) > len(content):
-                    content = info["description"]
-                if info.get("title") and title == "Instagram Post":
-                    title = info["title"]
-                if not thumbnail and info.get("thumbnail"):
-                    thumbnail = info["thumbnail"]
-                # Collect all thumbnail URLs from carousel entries
-                for entry in info.get("entries", [info]):
-                    for thumb in entry.get("thumbnails", []):
-                        if thumb.get("url"):
-                            image_urls.append(thumb["url"])
-                    if entry.get("thumbnail") and entry["thumbnail"] not in image_urls:
-                        image_urls.append(entry["thumbnail"])
-    except Exception as e:
-        logger.warning(f"Instagram yt-dlp metadata failed: {e}")
 
-    # Add og:image if we got one and it's not already in the list
-    if thumbnail and thumbnail not in image_urls:
-        image_urls.insert(0, thumbnail)
+    # Step 1: Apify Instagram Scraper — get full post data + carousel images
+    if APIFY_TOKEN:
+        try:
+            logger.info(f"📸 Calling Apify Instagram scraper for {url}")
+            resp = requests.post(
+                f"https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}",
+                json={"directUrls": [url], "resultsType": "posts", "resultsLimit": 1},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                posts = resp.json()
+                if posts and len(posts) > 0:
+                    post = posts[0]
+                    # Caption
+                    if post.get("caption"):
+                        content = post["caption"]
+                    # Title from owner
+                    owner = post.get("ownerUsername", "")
+                    if owner:
+                        title = f"{owner} on Instagram"
+                        if content:
+                            first_line = content.split("\n")[0][:100]
+                            title = f'{owner}: "{first_line}"'
+                    # Thumbnail
+                    if post.get("displayUrl"):
+                        thumbnail = post["displayUrl"]
+                    # All carousel image URLs
+                    for img in post.get("images", []):
+                        if img and img not in image_urls:
+                            image_urls.append(img)
+                    logger.info(f"📸 Apify returned {len(image_urls)} images, caption={len(content)} chars")
+        except Exception as e:
+            logger.warning(f"Apify Instagram scraper failed: {e}")
 
-    # Step 3: Download images and analyze with Gemini vision
+    # Step 1b: Fallback to og tags if Apify didn't work
+    if not content:
+        try:
+            response = requests.get(url, headers=headers, timeout=15, verify=certifi.where())
+            soup = BeautifulSoup(response.text, "html.parser")
+            og_title = soup.find("meta", property="og:title")
+            if og_title and og_title.get("content"):
+                title = og_title["content"]
+            og_desc = soup.find("meta", property="og:description")
+            if og_desc and og_desc.get("content"):
+                content = og_desc["content"]
+            og_image = soup.find("meta", property="og:image")
+            if og_image and og_image.get("content"):
+                thumbnail = og_image["content"]
+                if not image_urls:
+                    image_urls.append(thumbnail)
+        except Exception as e:
+            logger.warning(f"Instagram og tag fallback failed: {e}")
+
+    # Step 2: Download carousel images and analyze with Gemini vision
     tmp_dir = f"/tmp/aether_ig_{_uuid.uuid4().hex}"
     os.makedirs(tmp_dir, exist_ok=True)
     downloaded_files = []
 
     for i, img_url in enumerate(image_urls[:15]):
         try:
-            resp = requests.get(img_url, headers=headers, timeout=10, verify=certifi.where())
+            resp = requests.get(img_url, headers=headers, timeout=15, verify=certifi.where())
             if resp.status_code == 200 and len(resp.content) > 1000:
                 ext = "jpg"
-                if "png" in resp.headers.get("content-type", ""):
-                    ext = "png"
-                elif "webp" in resp.headers.get("content-type", ""):
-                    ext = "webp"
+                ct = resp.headers.get("content-type", "")
+                if "png" in ct: ext = "png"
+                elif "webp" in ct: ext = "webp"
+                elif "heic" in ct: ext = "jpg"  # PIL can't read heic, but CDN usually serves jpg
                 path = f"{tmp_dir}/{i:03d}.{ext}"
                 with open(path, "wb") as f:
                     f.write(resp.content)
@@ -263,14 +270,13 @@ def _extract_instagram(url: str) -> dict:
         except Exception:
             continue
 
-    logger.info(f"📸 Instagram: downloaded {len(downloaded_files)} images from {url}")
+    logger.info(f"📸 Instagram: downloaded {len(downloaded_files)} of {len(image_urls)} images")
 
     if downloaded_files:
         vision_text = _analyze_images_with_gemini(downloaded_files[:10])
         if vision_text:
             content = content + "\n\n--- Image Analysis ---\n" + vision_text if content else vision_text
 
-    import shutil
     shutil.rmtree(tmp_dir, ignore_errors=True)
 
     if not content:
