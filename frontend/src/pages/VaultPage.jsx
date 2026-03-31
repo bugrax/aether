@@ -231,6 +231,17 @@ export default function VaultPage() {
     loadNotes();
   }, [searchParams]);
 
+  // Refresh when app comes back to foreground (e.g. after share extension)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadNotes();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [searchParams]);
+
   // Auto-refresh while any note is still processing
   useEffect(() => {
     const hasProcessing = notes.some(n => n.status === 'processing');
