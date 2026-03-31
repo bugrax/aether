@@ -4,6 +4,18 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { notesAPI } from '../api';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import { stripHTML } from '../components/editor/editorUtils';
+import { Capacitor } from '@capacitor/core';
+
+async function nativeShare(title, url) {
+  if (Capacitor.isNativePlatform()) {
+    const { Share } = await import('@capacitor/share');
+    await Share.share({ title, url, dialogTitle: title });
+  } else if (navigator.share) {
+    await navigator.share({ title, url });
+  } else {
+    await navigator.clipboard.writeText(url);
+  }
+}
 
 export default function EditorPage() {
   const { id } = useParams();
@@ -300,29 +312,18 @@ export default function EditorPage() {
                   <button
                     className="editor-delete-btn"
                     onClick={async () => {
-                      let shareToken = note.share_token;
-                      if (!shareToken) {
-                        const res = await notesAPI.toggleShare(note.id);
-                        shareToken = res.share_token;
-                        note.share_token = shareToken;
-                      }
-                      if (shareToken) {
-                        const url = `${window.location.origin}/s/${shareToken}`;
-                        try {
-                          await navigator.clipboard.writeText(url);
-                        } catch {
-                          // Fallback for iOS
-                          const ta = document.createElement('textarea');
-                          ta.value = url;
-                          document.body.appendChild(ta);
-                          ta.select();
-                          document.execCommand('copy');
-                          document.body.removeChild(ta);
+                      try {
+                        let shareToken = note.share_token;
+                        if (!shareToken) {
+                          const res = await notesAPI.toggleShare(note.id);
+                          shareToken = res.share_token;
+                          note.share_token = shareToken;
                         }
-                        if (navigator.share) {
-                          navigator.share({ title: note.title, url });
+                        if (shareToken) {
+                          const appBase = Capacitor.isNativePlatform() ? 'https://app.aether.relayhaus.org' : window.location.origin;
+                          await nativeShare(note.title, `${appBase}/s/${shareToken}`);
                         }
-                      }
+                      } catch (e) { console.error('Share failed:', e); }
                     }}
                     title={t('share_public')}
                   >
@@ -596,20 +597,10 @@ function AIInsightView({ insight, sourceUrl, noteId, shareToken, t }) {
         setToken(tk);
       }
       if (tk) {
-        const url = `${window.location.origin}/s/${tk}`;
-        if (navigator.share) {
-          await navigator.share({ title: 'Aether Insight', url });
-        } else {
-          try {
-            await navigator.clipboard.writeText(url);
-          } catch {
-            const ta = document.createElement('textarea');
-            ta.value = url;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-          }
+        const appBase = Capacitor.isNativePlatform() ? 'https://app.aether.relayhaus.org' : window.location.origin;
+        const url = `${appBase}/s/${tk}`;
+        await nativeShare('Aether Insight', url);
+        if (!Capacitor.isNativePlatform() && !navigator.share) {
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         }
