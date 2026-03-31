@@ -43,7 +43,7 @@ export default function LoginPage() {
           backgroundClip: 'text',
           marginBottom: 'var(--space-2)',
         }}>
-          Aether
+          <a href="https://aether.relayhaus.org" style={{ textDecoration: 'none', WebkitTextFillColor: 'inherit' }}>Aether</a>
         </h1>
         <p style={{
           color: 'var(--secondary)',
