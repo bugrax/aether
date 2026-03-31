@@ -552,16 +552,39 @@ function AIInsightView({ insight, sourceUrl, t }) {
     i++;
   }
 
+  function handleShareInsight() {
+    const text = insight.replace(/[#*|_~`>-]/g, '').replace(/\n{3,}/g, '\n\n').trim();
+    const shareData = {
+      title: 'Aether AI Insight',
+      text: text.substring(0, 500),
+      ...(sourceUrl ? { url: sourceUrl } : {}),
+    };
+    if (navigator.share) {
+      navigator.share(shareData);
+    } else {
+      navigator.clipboard.writeText(sourceUrl || text.substring(0, 1000));
+    }
+  }
+
   return (
     <div className="ai-panel fade-in">
       <div className="ai-panel-header">
         <div className="ai-panel-icon">✨</div>
-        <div>
+        <div style={{ flex: 1 }}>
           <h3 className="ai-panel-title">{t('ai_insight_tab')}</h3>
           <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.8125rem' }}>
             {t('auto_generated_analysis')}
           </p>
         </div>
+        <button
+          onClick={handleShareInsight}
+          style={{ background: 'none', border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius-md)', padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--on-surface-variant)', fontSize: '0.75rem', fontFamily: 'var(--font-label)' }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" />
+          </svg>
+          {t('share')}
+        </button>
       </div>
 
       <div className="ai-insight-content">
