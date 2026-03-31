@@ -211,14 +211,18 @@ func ShareURL(c *gin.Context) {
 
 	// Enqueue job to Redis in Celery-compatible format
 	taskID := uuid.New().String()
+	aiLang := user.AILanguage
+	if aiLang == "" {
+		aiLang = user.Language
+	}
 	body := []interface{}{
 		[]interface{}{note.ID.String(), req.URL}, // args
-		map[string]interface{}{"language": user.Language}, // kwargs
+		map[string]interface{}{"language": aiLang}, // kwargs
 		map[string]interface{}{"callbacks": nil, "errbacks": nil, "chain": nil, "chord": nil},
 	}
 	bodyJSON, _ := json.Marshal(body)
 
-	kwargsRepr := "{'language': '" + user.Language + "'}"
+	kwargsRepr := "{'language': '" + aiLang + "'}"
 
 	celeryMsg := map[string]interface{}{
 		"body":             string(bodyJSON),

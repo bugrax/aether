@@ -8,15 +8,19 @@ const LanguageContext = createContext(null);
 
 export function LanguageProvider({ children }) {
   const { user } = useAuth();
-  const [lang, setLang] = useState('en');
+  const [lang, setLang] = useState(() => {
+    const browserLang = navigator.language || navigator.userLanguage || '';
+    return browserLang.startsWith('tr') ? 'tr' : 'en';
+  });
+  const [aiLang, setAiLang] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Load language preference from API on mount
   useEffect(() => {
     if (user) {
       usersAPI.getSettings()
         .then(data => {
           if (data.language) setLang(data.language);
+          if (data.ai_language) setAiLang(data.ai_language);
         })
         .catch(err => console.error("Failed to load settings", err))
         .finally(() => setLoading(false));
@@ -32,19 +36,26 @@ export function LanguageProvider({ children }) {
 
   const changeLanguage = async (newLang) => {
     try {
-      if (user) {
-        await usersAPI.updateSettings({ language: newLang });
-      }
+      if (user) await usersAPI.updateSettings({ language: newLang });
       setLang(newLang);
     } catch (err) {
       console.error("Failed to update language", err);
-      // fallback just UI update
       setLang(newLang);
     }
   };
 
+  const changeAiLanguage = async (newLang) => {
+    try {
+      if (user) await usersAPI.updateSettings({ ai_language: newLang });
+      setAiLang(newLang);
+    } catch (err) {
+      console.error("Failed to update AI language", err);
+      setAiLang(newLang);
+    }
+  };
+
   return (
-    <LanguageContext.Provider value={{ lang, setLang: changeLanguage, t, loading }}>
+    <LanguageContext.Provider value={{ lang, setLang: changeLanguage, aiLang, setAiLang: changeAiLanguage, t, loading }}>
       {children}
     </LanguageContext.Provider>
   );

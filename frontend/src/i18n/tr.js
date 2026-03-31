@@ -70,6 +70,9 @@ export const tr = {
   "cancel": "İptal",
   "language": "Dil",
   "select_language": "Tercih ettiğin dili seç",
+  "ai_language": "AI Özet Dili",
+  "ai_language_desc": "AI tarafından oluşturulan özetler ve içgörüler için dil seçin",
+  "ai_lang_auto": "Uygulama ile aynı",
 
   // Label Picker (Editor)
   "add_label": "Etiket Ekle",

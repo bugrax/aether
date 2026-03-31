@@ -15,6 +15,7 @@ type User struct {
 	Username   string         `gorm:"uniqueIndex;not null;size:50" json:"username"`
 	AvatarURL  string         `gorm:"size:2048" json:"avatar_url,omitempty"`
 	Language   string         `gorm:"size:10;default:'en'" json:"language"`
+	AILanguage string         `gorm:"size:10;default:''" json:"ai_language"`
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
 	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`

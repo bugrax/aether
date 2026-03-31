@@ -70,6 +70,9 @@ export const en = {
   "cancel": "Cancel",
   "language": "Language",
   "select_language": "Select your preferred language",
+  "ai_language": "AI Insight Language",
+  "ai_language_desc": "Choose the language for AI-generated summaries and insights",
+  "ai_lang_auto": "Same as app",
 
   // Label Picker (Editor)
   "add_label": "Add Label",
