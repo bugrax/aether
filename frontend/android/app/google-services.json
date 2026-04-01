@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "117818548162",
+    "project_id": "aether-8717a",
+    "storage_bucket": "aether-8717a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:117818548162:android:a22d0ee05f3b75eab5005b",
+        "android_client_info": {
+          "package_name": "com.bugra.aether"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "117818548162-29ldrgug9umv4sucoaptf11l5qku0a2k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bugra.aether",
+            "certificate_hash": "e046a78e5c9cd1c67fee9ec1a4bbc2b1fc926c06"
+          }
+        },
+        {
+          "client_id": "117818548162-e3eohdbd9ov4u10p9gjgr75vli4kaf4g.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC1PqU3tmuQjVLacl0Sw3c9roDe-Sw1FWg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "117818548162-e3eohdbd9ov4u10p9gjgr75vli4kaf4g.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "117818548162-j4nft2nmmkgncrci6ggdn4fq6qusqr0a.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.bugra.aether"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
