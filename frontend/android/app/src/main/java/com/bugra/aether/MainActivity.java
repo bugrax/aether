@@ -20,10 +20,8 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Edge-to-edge: extend content behind status bar and nav bar
+        // Edge-to-edge display
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
-        getWindow().setNavigationBarColor(android.graphics.Color.parseColor("#0e0e0e"));
 
         authStateListener = firebaseAuth -> {
             FirebaseUser user = firebaseAuth.getCurrentUser();
