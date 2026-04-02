@@ -1,30 +1,36 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.aether.app',
+  appId: 'com.bugra.aether',
   appName: 'Aether',
   webDir: 'dist',
   server: {
-    // In production, the app loads from the local dist/ bundle
-    // For development, uncomment the url below to use live reload:
-    // url: 'http://YOUR_LOCAL_IP:5173',
     androidScheme: 'https',
     iosScheme: 'https',
   },
   ios: {
-    contentInset: 'automatic',
+    contentInset: 'never',
     preferredContentMode: 'mobile',
     scheme: 'Aether',
   },
   plugins: {
     SplashScreen: {
       launchAutoHide: true,
-      launchShowDuration: 1500,
+      launchShowDuration: 2500,
+      launchFadeOutDuration: 500,
       backgroundColor: '#0e0e0e',
+      showSpinner: false,
+      splashImmersive: true,
+      splashFullScreen: true,
     },
     StatusBar: {
       style: 'DARK',
       backgroundColor: '#0e0e0e',
+      overlaysWebView: true,
+    },
+    FirebaseAuthentication: {
+      skipNativeAuth: false,
+      providers: ['google.com', 'apple.com'],
     },
   },
 };

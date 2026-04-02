@@ -24,6 +24,9 @@ type Config struct {
 	// Firebase
 	FirebaseCredentialsPath string
 	FirebaseProjectID      string
+
+	// LLM
+	GeminiAPIKey string
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -42,6 +45,8 @@ func Load() *Config {
 
 		FirebaseCredentialsPath: getEnv("FIREBASE_CREDENTIALS_PATH", "./firebase-service-account.json"),
 		FirebaseProjectID:      getEnv("FIREBASE_PROJECT_ID", ""),
+
+		GeminiAPIKey: getEnv("GEMINI_API_KEY", ""),
 	}
 }
 

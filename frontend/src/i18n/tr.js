@@ -5,6 +5,7 @@ export const tr = {
   "share": "Bağlantı Yakala",
   "labels": "Etiketler",
   "settings": "Ayarlar",
+  "links": "Linkler",
   "sign_out": "Çıkış Yap",
   "all_notes": "Tüm Notlar",
 
@@ -97,6 +98,7 @@ export const tr = {
 
   // Login
   "sign_in_google": "Google ile Giriş Yap",
+  "sign_in_apple": "Apple ile Giriş Yap",
   "signing_in": "Giriş yapılıyor...",
   "tagline": "Bağlantılar bilgiye dönüşür",
   "login_desc": "Herhangi bir bağlantıyı kaydet. Yapay zeka çıkarsın, özetlesin ve düzenlesin.\nKişisel bilgi motorun — her zaman aranabilir, her zaman senin.",
@@ -112,4 +114,21 @@ export const tr = {
   "add_label": "Etiket Ekle",
   "remove_label": "Kaldır",
   "no_labels_available": "Etiket bulunamadı",
+
+  // Chat
+  "chat_placeholder": "Aether'a bir \u015fey sor...",
+  "chat_chip_summarize": "Haftam\u0131 \u00f6zetle",
+  "chat_chip_connections": "Ba\u011flant\u0131lar\u0131 bul",
+  "chat_chip_recent": "Ne kaydettim?",
+  "chat_typing": "D\u00fc\u015f\u00fcn\u00fcyor...",
+  "chat_error": "Bir \u015feyler yanl\u0131\u015f gitti. Tekrar deneyin.",
+
+  // Account Deletion
+  "delete_account": "Hesabı Sil",
+  "delete_account_desc": "Hesabınızı ve tüm verilerinizi kalıcı olarak silin. Bu işlem geri alınamaz.",
+  "delete_account_confirm_title": "Hesabınızı Silmek İstiyor musunuz?",
+  "delete_account_confirm_body": "Tüm notlarınız, etiketleriniz ve ayarlarınız kalıcı olarak silinecek. Bu işlem geri alınamaz.",
+  "delete_account_confirm_btn": "Evet, Hesabımı Sil",
+  "delete_account_success": "Hesap başarıyla silindi.",
+  "delete_account_failed": "Hesap silinemedi. Lütfen tekrar deneyin.",
 };

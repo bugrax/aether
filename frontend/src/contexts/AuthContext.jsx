@@ -155,7 +155,7 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const login = async () => {
+  const login = async (provider = 'google') => {
     if (isDevMode) {
       setUser({ uid: 'dev-user-local', email: 'dev@aether.local', displayName: 'Developer' });
       setAuthToken('dev-token');
@@ -163,8 +163,9 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    const { signInWithGoogle } = await import('../firebase');
-    const firebaseUser = await signInWithGoogle();
+    const firebase = await import('../firebase');
+    const signIn = provider === 'apple' ? firebase.signInWithApple : firebase.signInWithGoogle;
+    const firebaseUser = await signIn();
     if (firebaseUser) {
       const token = firebaseUser._nativeToken || await firebaseUser.getIdToken();
       setUser(firebaseUser);

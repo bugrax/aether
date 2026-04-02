@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -215,8 +217,18 @@ func GetUser(c *gin.Context) *models.User {
 // findOrCreateUserFromClaims looks up a user by Firebase UID or creates one.
 func findOrCreateUserFromClaims(uid, email, name, picture string) (*models.User, error) {
 	var user models.User
-	result := database.DB.Where("firebase_id = ?", uid).First(&user)
+	// Also check soft-deleted users with Unscoped
+	result := database.DB.Unscoped().Where("firebase_id = ?", uid).First(&user)
 	if result.Error == nil {
+		// Restore if soft-deleted
+		if user.DeletedAt.Valid {
+			database.DB.Unscoped().Model(&user).Update("deleted_at", nil)
+		}
+		// Update avatar/email if changed
+		database.DB.Model(&user).Updates(map[string]interface{}{
+			"email":      email,
+			"avatar_url": picture,
+		})
 		return &user, nil
 	}
 
@@ -229,6 +241,11 @@ func findOrCreateUserFromClaims(uid, email, name, picture string) (*models.User,
 		}
 	}
 
+	// Truncate username to fit 50 char limit
+	if len(name) > 45 {
+		name = name[:45]
+	}
+
 	user = models.User{
 		FirebaseID: uid,
 		Email:      email,
@@ -237,6 +254,21 @@ func findOrCreateUserFromClaims(uid, email, name, picture string) (*models.User,
 	}
 
 	if err := database.DB.Create(&user).Error; err != nil {
+		// Handle duplicate username: append random suffix
+		if strings.Contains(err.Error(), "idx_users_username") {
+			user.Username = fmt.Sprintf("%s_%d", name, rand.Intn(9999))
+			if err2 := database.DB.Create(&user).Error; err2 != nil {
+				return nil, err2
+			}
+			return &user, nil
+		}
+		// Handle race condition: another request created the user
+		if strings.Contains(err.Error(), "idx_users_firebase_id") || strings.Contains(err.Error(), "idx_users_email") {
+			result = database.DB.Where("firebase_id = ?", uid).First(&user)
+			if result.Error == nil {
+				return &user, nil
+			}
+		}
 		return nil, err
 	}
 

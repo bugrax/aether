@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/bugracakmak/aether-api/database"
@@ -67,12 +68,46 @@ func ListNotes(c *gin.Context) {
 		query = query.Where("title ILIKE ? OR content ILIKE ?", "%"+search+"%", "%"+search+"%")
 	}
 
+	// Pagination
+	limit := 20
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	offset := 0
+	if o := c.Query("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	// Get total count before pagination
+	var total int64
+	countQuery := database.DB.Model(&models.Note{}).Where("user_id = ?", user.ID)
+	if status := c.Query("status"); status != "" {
+		countQuery = countQuery.Where("status = ?", status)
+	}
+	if labelID := c.Query("label_id"); labelID != "" {
+		countQuery = countQuery.Joins("JOIN note_labels ON note_labels.note_id = notes.id").
+			Where("note_labels.label_id = ?", labelID)
+	}
+	countQuery.Count(&total)
+
+	query = query.Limit(limit).Offset(offset)
+
 	if err := query.Find(&notes).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch notes"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"notes": notes})
+	c.JSON(http.StatusOK, gin.H{
+		"notes":    notes,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": int64(offset+limit) < total,
+	})
 }
 
 // GetNote returns a single note by ID.

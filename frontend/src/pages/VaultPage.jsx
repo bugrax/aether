@@ -224,8 +224,9 @@ const STATUS_FILTERS = [
 
 export default function VaultPage() {
   const [notes, setNotes] = useState([]);
-  const [allNotes, setAllNotes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState('');
   const [isSearchActive, setIsSearchActive] = useState(false);
@@ -237,50 +238,36 @@ export default function VaultPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { t } = useLanguage();
+  const observerRef = useRef(null);
+  const sentinelRef = useRef(null);
+  const offsetRef = useRef(0);
+  const allNotesRef = useRef([]);
 
-  // Keep a ref to allNotes for use in effects without stale closures
-  const allNotesRef = useRef(allNotes);
-  allNotesRef.current = allNotes;
+  const PAGE_SIZE = 20;
 
   useEffect(() => {
-    // Clear search state when navigating to a different label
     setSearch('');
     setIsSearchActive(false);
     setSearching(false);
-    loadNotes();
+    loadNotes(true);
   }, [searchParams]);
 
-  // Refresh when app comes back to foreground (e.g. after share extension)
+  // Refresh when app comes back to foreground
   useEffect(() => {
     const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        loadNotes();
-      }
+      if (document.visibilityState === 'visible') loadNotes(true);
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [searchParams]);
 
-  // Auto-refresh while any note is still processing
+  // Auto-refresh while any note is processing
   useEffect(() => {
     const hasProcessing = notes.some(n => n.status === 'processing');
     if (!hasProcessing) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const params = {};
-        const labelId = searchParams.get('label_id');
-        if (labelId) params.label_id = labelId;
-        const data = await notesAPI.list(params);
-        setNotes(data.notes || []);
-        if (!isSearchActive) setAllNotes(data.notes || []);
-      } catch (err) {
-        console.error('Polling failed:', err);
-      }
-    }, 5000);
-
+    const interval = setInterval(() => loadNotes(true), 5000);
     return () => clearInterval(interval);
-  }, [notes, searchParams, isSearchActive]);
+  }, [notes, searchParams]);
 
   // Debounced semantic search
   useEffect(() => {
@@ -292,28 +279,68 @@ export default function VaultPage() {
       return;
     }
     setSearching(true);
-    const timer = setTimeout(() => {
-      performSearch(search.trim());
-    }, 400);
+    const timer = setTimeout(() => performSearch(search.trim()), 400);
     return () => clearTimeout(timer);
   }, [search]);
 
-  async function loadNotes() {
-    setLoading(true);
+  // Infinite scroll observer
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !isSearchActive) {
+          loadMoreNotes();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observerRef.current.observe(sentinelRef.current);
+    return () => observerRef.current?.disconnect();
+  }, [hasMore, loadingMore, isSearchActive]);
+
+  async function loadNotes(reset = false) {
+    if (reset) {
+      setLoading(true);
+      offsetRef.current = 0;
+    }
     try {
-      const params = {};
+      const params = { limit: PAGE_SIZE, offset: 0 };
       const labelId = searchParams.get('label_id');
       if (labelId) params.label_id = labelId;
-
       const data = await notesAPI.list(params);
-      setNotes(data.notes || []);
-      setAllNotes(data.notes || []);
+      const newNotes = data.notes || [];
+      setNotes(newNotes);
+      allNotesRef.current = newNotes;
+      setHasMore(data.has_more || false);
+      offsetRef.current = newNotes.length;
     } catch (err) {
       console.error('Failed to load notes:', err);
-      setNotes(getDemoNotes());
-      setAllNotes(getDemoNotes());
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMoreNotes() {
+    setLoadingMore(true);
+    try {
+      const params = { limit: PAGE_SIZE, offset: offsetRef.current };
+      const labelId = searchParams.get('label_id');
+      if (labelId) params.label_id = labelId;
+      const data = await notesAPI.list(params);
+      const moreNotes = data.notes || [];
+      setNotes(prev => {
+        const ids = new Set(prev.map(n => n.id));
+        const unique = moreNotes.filter(n => !ids.has(n.id));
+        const combined = [...prev, ...unique];
+        allNotesRef.current = combined;
+        return combined;
+      });
+      setHasMore(data.has_more || false);
+      offsetRef.current += moreNotes.length;
+    } catch (err) {
+      console.error('Failed to load more notes:', err);
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -332,8 +359,11 @@ export default function VaultPage() {
     setIsDeleting(true);
     try {
       await notesAPI.delete(deleteTarget.id);
-      setNotes(prev => prev.filter(n => n.id !== deleteTarget.id));
-      setAllNotes(prev => prev.filter(n => n.id !== deleteTarget.id));
+      setNotes(prev => {
+        const updated = prev.filter(n => n.id !== deleteTarget.id);
+        allNotesRef.current = updated;
+        return updated;
+      });
       setDeleteTarget(null);
     } catch (err) {
       console.error('Delete failed:', err);
@@ -424,43 +454,6 @@ export default function VaultPage() {
 
   return (
     <div className="vault-page">
-      {/* Search */}
-      <form onSubmit={handleSearch} className="search-bar">
-        <span className="search-icon">
-          {searching ? (
-            <span className="search-spinner" />
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          )}
-        </span>
-        <input
-          type="text"
-          placeholder={t('search_placeholder')}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        {search && (
-          <button type="button" className="search-clear" onClick={clearSearch} title="Clear">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        )}
-      </form>
-
-      {/* Search result info */}
-      {isSearchActive && !searching && (
-        <div className="search-result-info">
-          <span>{processedNotes.length} {processedNotes.length === 1 ? t('result_count_one') : t('result_count_other')} — "{search}"</span>
-          <button className="search-result-clear" onClick={clearSearch}>
-            {t('clear_search')}
-          </button>
-        </div>
-      )}
-
       {/* Toolbar — only show when 3+ notes */}
       {processedNotes.length >= 3 && <div className="vault-toolbar">
         <div className="vault-controls">
@@ -567,6 +560,14 @@ export default function VaultPage() {
               t={t}
             />
           ))}
+        </div>
+      )}
+
+      {/* Infinite scroll sentinel */}
+      <div ref={sentinelRef} style={{ height: 1 }} />
+      {loadingMore && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-4)' }}>
+          <div className="loading-spinner" />
         </div>
       )}
 

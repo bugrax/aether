@@ -2,15 +2,13 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   GoogleAuthProvider,
+  OAuthProvider,
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from 'firebase/auth';
 import { Capacitor } from '@capacitor/core';
 
-// Firebase configuration — replace with your project's config
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo-key',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'demo.firebaseapp.com',
@@ -23,29 +21,69 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
-
+const appleProvider = new OAuthProvider('apple.com');
+appleProvider.addScope('email');
+appleProvider.addScope('name');
 const isNative = Capacitor.isNativePlatform();
 
-export { auth, onAuthStateChanged };
+export { auth, onAuthStateChanged, isNative };
+
+function buildNativeUser(result, tokenResult) {
+  return {
+    uid: result.user?.uid,
+    email: result.user?.email,
+    displayName: result.user?.displayName,
+    photoURL: result.user?.photoUrl,
+    _nativeToken: tokenResult.token,
+    getIdToken: async () => {
+      const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+      const t = await FirebaseAuthentication.getIdToken({ forceRefresh: false });
+      return t.token;
+    },
+  };
+}
 
 export async function signInWithGoogle() {
   if (isNative) {
-    // In Capacitor WebView, popups don't work — use redirect flow
-    await signInWithRedirect(auth, googleProvider);
-    // After redirect, getRedirectResult() is called in AuthContext useEffect
-    return null;
+    const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+    const result = await FirebaseAuthentication.signInWithGoogle();
+    const tokenResult = await FirebaseAuthentication.getIdToken({ forceRefresh: false });
+    return buildNativeUser(result, tokenResult);
   }
   const result = await signInWithPopup(auth, googleProvider);
   return result.user;
 }
 
-export { getRedirectResult };
+export async function signInWithApple() {
+  if (isNative) {
+    const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+    const result = await FirebaseAuthentication.signInWithApple();
+    const tokenResult = await FirebaseAuthentication.getIdToken({ forceRefresh: false });
+    return buildNativeUser(result, tokenResult);
+  }
+  const result = await signInWithPopup(auth, appleProvider);
+  return result.user;
+}
 
 export async function signOut() {
+  if (isNative) {
+    const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+    await FirebaseAuthentication.signOut();
+    return;
+  }
   await firebaseSignOut(auth);
 }
 
 export async function getIdToken() {
+  if (isNative) {
+    try {
+      const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+      const result = await FirebaseAuthentication.getIdToken({ forceRefresh: false });
+      return result.token;
+    } catch {
+      return null;
+    }
+  }
   const user = auth.currentUser;
   if (!user) return null;
   return user.getIdToken();

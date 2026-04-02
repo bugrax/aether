@@ -4,14 +4,8 @@ import { Capacitor } from '@capacitor/core'
 import './index.css'
 import App from './App.jsx'
 
-// Make WebView extend behind status bar and nav bar on native
-if (Capacitor.isNativePlatform()) {
-  import('@capacitor/status-bar').then(({ StatusBar, Style }) => {
-    StatusBar.setOverlaysWebView({ overlay: true });
-    StatusBar.setBackgroundColor({ color: '#0e0e0e' });
-    StatusBar.setStyle({ style: Style.Dark });
-  }).catch(() => {});
-}
+// StatusBar overlay config is handled by capacitor.config.ts at startup.
+// No need to re-apply here — doing so causes a layout reflow on Android.
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

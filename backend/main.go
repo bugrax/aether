@@ -114,6 +114,13 @@ func main() {
 		// User Settings
 		v1.GET("/user/settings", handlers.GetSettings)
 		v1.PATCH("/user/settings", handlers.UpdateSettings)
+		v1.DELETE("/user/account", handlers.DeleteAccount)
+
+		// Chat
+		v1.POST("/chat", handlers.ChatMessage)
+		v1.POST("/chat/:id/feedback", handlers.ChatFeedback)
+		v1.GET("/chat/sessions", handlers.ChatSessions)
+		v1.GET("/chat/sessions/:session_id", handlers.ChatSessionMessages)
 
 		// Share URL (AI processing pipeline)
 		v1.POST("/share", handlers.ShareURL)

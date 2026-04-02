@@ -26,8 +26,9 @@ type Note struct {
 	SourceURL    string         `gorm:"size:2048" json:"source_url,omitempty"`
 	ThumbnailURL string         `gorm:"type:text" json:"thumbnail_url,omitempty"`
 	Status       NoteStatus     `gorm:"type:varchar(20);default:'draft';not null;index" json:"status"`
-	AIInsight    string         `gorm:"type:text" json:"ai_insight,omitempty"`
-	ShareToken   string         `gorm:"size:64" json:"share_token,omitempty"`
+	AIInsight         string         `gorm:"type:text" json:"ai_insight,omitempty"`
+	CommunityComments string         `gorm:"type:text" json:"community_comments,omitempty"`
+	ShareToken        string         `gorm:"size:64" json:"share_token,omitempty"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

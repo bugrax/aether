@@ -37,6 +37,7 @@ async function request(method, path, body = null) {
 // ── Notes ─────────────────────────────────────────────
 export const notesAPI = {
   list: (params = {}) => {
+    if (!params.limit) params.limit = 20;
     const query = new URLSearchParams(params).toString();
     return request('GET', `/notes${query ? '?' + query : ''}`);
   },
@@ -88,4 +89,65 @@ export const labelsAPI = {
 export const usersAPI = {
   getSettings: () => request('GET', '/user/settings'),
   updateSettings: (data) => request('PATCH', '/user/settings', data),
+  deleteAccount: () => request('DELETE', '/user/account'),
+};
+
+// ── Chat ─────────────────────────────────────────────
+export const chatAPI = {
+  send: async (message, sessionId, language, onToken, onDone, onError) => {
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+      const resp = await fetch(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ message, session_id: sessionId, language }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Chat request failed');
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            const event = line.slice(7);
+            // Next line should be data
+            continue;
+          }
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.text !== undefined) {
+                onToken(parsed.text);
+              } else if (parsed.id) {
+                onDone(parsed.id);
+              } else if (parsed.error) {
+                onError(parsed.error);
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (err) {
+      onError(err.message);
+    }
+  },
+  feedback: (messageId, value) => request('POST', `/chat/${messageId}/feedback`, { feedback: value }),
+  sessions: () => request('GET', '/chat/sessions'),
+  sessionMessages: (sessionId) => request('GET', `/chat/sessions/${sessionId}`),
 };

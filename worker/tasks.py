@@ -7,6 +7,7 @@ and executed by the Celery worker.
 
 import os
 import ssl
+import json
 import subprocess
 import logging
 from datetime import datetime, timezone
@@ -637,6 +638,145 @@ def auto_label_source(note_id: str, url: str):
         logger.warning(f"⚠️ Auto-labeling failed for {note_id}: {e}")
 
 
+# ── Comment Extraction ─────────────────────────────────
+
+def extract_comments(url: str) -> list:
+    """Extract comments from YouTube or Instagram URLs. Returns normalized list."""
+    try:
+        if any(domain in url for domain in ["youtube.com", "youtu.be"]):
+            return _extract_youtube_comments(url)
+        if "instagram.com" in url:
+            return _extract_instagram_comments(url)
+    except Exception as e:
+        logger.warning(f"⚠️ Comment extraction failed for {url}: {e}")
+    return []
+
+
+def _extract_youtube_comments(url: str) -> list:
+    """Extract top YouTube comments using yt-dlp."""
+    import yt_dlp
+
+    logger.info(f"💬 Extracting YouTube comments for {url}")
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "getcomments": True,
+        "extractor_args": {
+            "youtube": {
+                "max_comments": ["500", "200", "5", "3"],
+                "comment_sort": ["top"],
+            }
+        },
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        raw_comments = info.get("comments", [])
+        if not raw_comments:
+            logger.info("💬 No YouTube comments found")
+            return []
+
+        comments = []
+        for c in raw_comments:
+            comments.append({
+                "author": c.get("author", "Unknown"),
+                "text": c.get("text", ""),
+                "like_count": c.get("like_count", 0) or 0,
+                "is_pinned": c.get("is_pinned", False),
+            })
+
+        # Sort by likes
+        comments.sort(key=lambda x: x["like_count"], reverse=True)
+        logger.info(f"💬 Extracted {len(comments)} YouTube comments")
+        return comments
+
+    except Exception as e:
+        logger.warning(f"⚠️ YouTube comment extraction failed: {e}")
+        return []
+
+
+def _extract_instagram_comments(url: str) -> list:
+    """Extract Instagram comments using Apify Instagram Comment Scraper."""
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN", "")
+    if not APIFY_TOKEN:
+        return []
+
+    logger.info(f"💬 Extracting Instagram comments for {url}")
+    try:
+        resp = requests.post(
+            f"https://api.apify.com/v2/acts/apify~instagram-comment-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}",
+            json={"directUrls": [url], "resultsLimit": 200},
+            timeout=120,
+        )
+        if resp.status_code not in (200, 201):
+            logger.warning(f"Apify comment scraper returned {resp.status_code}")
+            return []
+
+        raw = resp.json()
+        comments = []
+        for c in raw:
+            comments.append({
+                "author": c.get("ownerUsername", "Unknown"),
+                "text": c.get("text", ""),
+                "like_count": c.get("likesCount", 0) or 0,
+                "is_pinned": False,
+            })
+
+        comments.sort(key=lambda x: x["like_count"], reverse=True)
+        logger.info(f"💬 Extracted {len(comments)} Instagram comments")
+        return comments
+
+    except Exception as e:
+        logger.warning(f"⚠️ Instagram comment extraction failed: {e}")
+        return []
+
+
+def generate_community_insights(comments: list, language: str = "en") -> str:
+    """Analyze community comments and return a Markdown section."""
+    if len(comments) < 5:
+        return ""
+
+    lang_name = "Turkish" if language == "tr" else "English"
+
+    formatted = "\n".join([
+        f"- @{c['author']} ({c['like_count']} likes): {c['text'][:300]}"
+        for c in comments[:80]
+    ])
+
+    prompt = f"""Analyze these community comments from a video/post. Write your analysis entirely in {lang_name}.
+
+Comments:
+{formatted}
+
+Provide a structured Markdown analysis with EXACTLY this format:
+
+## 💬 Community Insights
+
+### Overall Sentiment
+(Positive/Negative/Mixed — brief 1-2 sentence explanation)
+
+### Key Discussion Themes
+(3-5 bullet points summarizing what the community is talking about)
+
+### Notable Perspectives
+(2-3 interesting or highly-liked comments that add value, paraphrased — not direct quotes)
+
+### Community Consensus
+(What does the community generally agree or disagree on?)
+
+Keep it concise, insightful, and written entirely in {lang_name}. Do not add conversational filler."""
+
+    result = _call_claude_cli(prompt)
+    if result.startswith("⚠️"):
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if gemini_key:
+            result = _call_gemini_api(prompt, gemini_key)
+    return result
+
+
 # ═══════════════════════════════════════════════════════
 # CELERY TASKS
 # ═══════════════════════════════════════════════════════
@@ -670,13 +810,22 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
         # Step 3: Generate AI summary
         ai_summary = call_llm(extracted["content"], instruction="Summarize", language=language)
 
-        # Step 4: Mark as ready with AI insight
+        # Step 4: Extract comments and generate community insights
+        comments = extract_comments(url)
+        if comments:
+            update_note_status(note_id, "processing",
+                               community_comments=json.dumps(comments, ensure_ascii=False))
+            community_section = generate_community_insights(comments, language)
+            if community_section and not community_section.startswith("⚠️"):
+                ai_summary = ai_summary + "\n\n---\n\n" + community_section
+
+        # Step 5: Mark as ready with AI insight
         update_note_status(note_id, "ready", ai_insight=ai_summary)
 
-        # Step 5: Generate embedding for semantic search
+        # Step 6: Generate embedding for semantic search
         generate_embedding(note_id, extracted["title"], extracted["content"], ai_summary)
 
-        # Step 6: Auto-label based on source URL
+        # Step 7: Auto-label based on source URL
         auto_label_source(note_id, url)
 
         logger.info(f"✅ Note {note_id} processed successfully")
@@ -684,7 +833,9 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
 
     except Exception as exc:
         logger.error(f"❌ Failed to process note {note_id}: {exc}")
-        update_note_status(note_id, "error")
+        if self.request.retries >= self.max_retries:
+            update_note_status(note_id, "error")
+        # Keep "processing" during retries so user doesn't see transient errors
         raise self.retry(exc=exc)
 
 
@@ -709,7 +860,8 @@ def generate_summary(self, note_id: str, content: str):
 
     except Exception as exc:
         logger.error(f"❌ Summary generation failed for note {note_id}: {exc}")
-        update_note_status(note_id, "error")
+        if self.request.retries >= self.max_retries:
+            update_note_status(note_id, "error")
         raise self.retry(exc=exc)
 
 

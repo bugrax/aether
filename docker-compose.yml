@@ -54,6 +54,8 @@ services:
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
       FIREBASE_CREDENTIALS_PATH: /app/firebase-service-account.json
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://aether.relayhaus.org,https://app.aether.relayhaus.org}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      EMBEDDING_URL: http://worker:8100
     volumes:
       - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     depends_on:

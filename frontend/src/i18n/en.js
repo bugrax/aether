@@ -5,6 +5,7 @@ export const en = {
   "share": "Capture Link",
   "labels": "Labels",
   "settings": "Settings",
+  "links": "Links",
   "sign_out": "Sign Out",
   "all_notes": "All Notes",
 
@@ -97,6 +98,7 @@ export const en = {
 
   // Login
   "sign_in_google": "Sign in with Google",
+  "sign_in_apple": "Sign in with Apple",
   "signing_in": "Signing in...",
   "tagline": "Where links become knowledge",
   "login_desc": "Save any link. AI extracts, summarizes, and organizes it.\nYour personal knowledge engine — always searchable, always yours.",
@@ -112,4 +114,21 @@ export const en = {
   "add_label": "Add Label",
   "remove_label": "Remove",
   "no_labels_available": "No labels available",
+
+  // Chat
+  "chat_placeholder": "Ask Aether anything...",
+  "chat_chip_summarize": "Summarize my week",
+  "chat_chip_connections": "Find connections",
+  "chat_chip_recent": "What did I save?",
+  "chat_typing": "Thinking...",
+  "chat_error": "Something went wrong. Try again.",
+
+  // Account Deletion
+  "delete_account": "Delete Account",
+  "delete_account_desc": "Permanently delete your account and all associated data. This action cannot be undone.",
+  "delete_account_confirm_title": "Delete Your Account?",
+  "delete_account_confirm_body": "All your notes, labels, and settings will be permanently deleted. This cannot be undone.",
+  "delete_account_confirm_btn": "Yes, Delete My Account",
+  "delete_account_success": "Account deleted successfully.",
+  "delete_account_failed": "Failed to delete account. Please try again.",
 };

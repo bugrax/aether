@@ -27,6 +27,7 @@ export default function EditorPage() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [note, setNote] = useState(null);
+  const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
   const [activeTab, setActiveTab] = useState('edit');
@@ -67,18 +68,20 @@ export default function EditorPage() {
   }, [note?.status, note?.id]);
 
   async function loadNote() {
+    setLoading(true);
     try {
       const data = await notesAPI.get(id);
       setNote(data);
       setTitle(data.title || '');
       setContent(data.content || '');
       setNoteLabels(data.labels || []);
-      // Default to AI Insight tab if available
       if (data.ai_insight) {
         setActiveTab('ai');
       }
     } catch (err) {
       console.error('Failed to load note:', err);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -224,6 +227,21 @@ export default function EditorPage() {
   );
 
   const saveStatus = formatSaveTime();
+
+  if (loading) {
+    return (
+      <div className="main-content">
+        <div className="editor-container fade-in">
+          <button className="editor-back" onClick={() => navigate('/vault')}>
+            {t('back_to_vault')}
+          </button>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, padding: 'var(--space-8)' }}>
+            <div className="loading-spinner" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="main-content">
