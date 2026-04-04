@@ -5,6 +5,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.widget.Toast;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -59,14 +61,42 @@ public class ShareReceiverActivity extends Activity {
     }
 
     private void handleSharedUrl(String url) {
-        String token = readToken();
-        if (token == null) {
-            showToastAndFinish("Open Aether app first to sign in");
-            return;
+        // First try: get fresh token from Firebase SDK
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user != null) {
+            Toast.makeText(this, "Saving to Aether...", Toast.LENGTH_SHORT).show();
+            user.getIdToken(true).addOnSuccessListener(result -> {
+                String freshToken = result.getToken();
+                if (freshToken != null) {
+                    // Save fresh token
+                    SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                    prefs.edit().putString(KEY_AUTH_TOKEN, freshToken).apply();
+                    postUrl(url, freshToken);
+                } else {
+                    showToastAndFinish("Failed to get token");
+                }
+            }).addOnFailureListener(e -> {
+                // Fallback: try stored token
+                String storedToken = readToken();
+                if (storedToken != null) {
+                    postUrl(url, storedToken);
+                } else {
+                    showToastAndFinish("Open Aether app first to sign in");
+                }
+            });
+        } else {
+            // No Firebase user — try stored token
+            String token = readToken();
+            if (token != null) {
+                Toast.makeText(this, "Saving to Aether...", Toast.LENGTH_SHORT).show();
+                postUrl(url, token);
+            } else {
+                showToastAndFinish("Open Aether app first to sign in");
+            }
         }
+    }
 
-        Toast.makeText(this, "Saving to Aether...", Toast.LENGTH_SHORT).show();
-
+    private void postUrl(String url, String token) {
         new Thread(() -> {
             try {
                 HttpURLConnection conn = (HttpURLConnection) new URL(API_URL).openConnection();

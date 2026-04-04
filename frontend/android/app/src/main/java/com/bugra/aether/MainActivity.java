@@ -64,6 +64,13 @@ public class MainActivity extends BridgeActivity {
     private void saveToken(String token) {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         prefs.edit().putString(KEY_AUTH_TOKEN, token).apply();
+        // Also save refresh token for ShareReceiverActivity
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user != null) {
+            // Firebase Android SDK doesn't expose refresh token directly,
+            // but getIdToken(true) forces a refresh. We store the token timestamp.
+            prefs.edit().putLong("tokenTimestamp", System.currentTimeMillis()).apply();
+        }
     }
 
     private void deleteToken() {

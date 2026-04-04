@@ -396,7 +396,7 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
 
           <button
             className={`mobile-tab ${mobileMenuOpen ? 'active' : ''}`}
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            onClick={() => { if (!mobileMenuOpen && onLabelsChanged) onLabelsChanged(); setMobileMenuOpen(!mobileMenuOpen); }}
           >
             <span className="mobile-tab-icon"><LabelIcon /></span>
             <span className="mobile-tab-label">{t('labels')}</span>

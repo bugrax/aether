@@ -2078,6 +2078,97 @@ p {
     cursor: default;
   }
 
+  /* ── History View ──────────────────────────────── */
+  .aether-history-back,
+  .aether-history-new {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: none;
+    border: none;
+    color: var(--on-surface-variant);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .aether-history-title {
+    font-family: var(--font-label);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--on-surface);
+  }
+
+  .aether-history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-2) 0;
+  }
+
+  .aether-history-group {
+    margin-bottom: var(--space-4);
+  }
+
+  .aether-history-date {
+    font-family: var(--font-label);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--outline);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--outline-variant);
+    margin-bottom: var(--space-2);
+  }
+
+  .aether-history-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-3);
+    background: var(--surface-container);
+    border: 1px solid var(--outline-variant);
+    border-radius: var(--radius-md);
+    color: var(--on-surface);
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    margin-bottom: var(--space-2);
+    transition: background var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .aether-history-item:active {
+    background: var(--surface-container-high);
+  }
+
+  .aether-history-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--surface-container-high);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--primary);
+    flex-shrink: 0;
+  }
+
+  .aether-history-preview {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .aether-chat-suggestions {
     display: flex;
     gap: var(--space-2);

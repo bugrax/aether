@@ -66,9 +66,13 @@ def extract_content_from_url(url: str) -> dict:
         if any(domain in url for domain in ["youtube.com", "youtu.be", "vimeo.com"]):
             return _extract_video(url)
 
-        # Instagram: use yt-dlp for reels/videos, og tags for posts
+        # Instagram
         if "instagram.com" in url:
             return _extract_instagram(url)
+
+        # Twitter / X
+        if any(domain in url for domain in ["twitter.com", "x.com"]):
+            return _extract_twitter(url)
 
         # Fall back to web scraping for articles
         return _extract_article(url)
@@ -368,6 +372,150 @@ def _analyze_images_with_gemini(image_paths: list) -> str:
         return ""
 
 
+def _extract_twitter(url: str) -> dict:
+    """Extract Twitter/X post content using Apify Tweet Scraper."""
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN", "")
+    if not APIFY_TOKEN:
+        logger.warning("No APIFY_TOKEN set, falling back to article scraper for Twitter")
+        return _extract_article(url)
+
+    logger.info(f"🐦 Calling Apify Tweet Scraper for {url}")
+    title = "Tweet"
+    content = ""
+    thumbnail = ""
+
+    try:
+        resp = requests.post(
+            f"https://api.apify.com/v2/acts/apidojo~tweet-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}",
+            json={"startUrls": [url], "maxItems": 1, "sort": "Top"},
+            timeout=120,
+        )
+        if resp.status_code in (200, 201):
+            tweets = resp.json()
+            if isinstance(tweets, list) and len(tweets) > 0:
+                tweet = tweets[0]
+                # Skip noResults responses
+                if tweet.get("noResults"):
+                    logger.warning("🐦 Apify returned noResults, falling back to OG scraper")
+                    return _extract_twitter_og(url)
+
+                # Try multiple field names for author
+                author = tweet.get("author", {}) or {}
+                author_name = (author.get("name") or author.get("userName") or
+                               tweet.get("user", {}).get("name", "") or
+                               tweet.get("user_name", "") or "")
+                author_handle = (author.get("userName") or author.get("screen_name") or
+                                 tweet.get("user", {}).get("screen_name", "") or
+                                 tweet.get("screen_name", "") or "")
+                text = tweet.get("text") or tweet.get("full_text") or ""
+
+                if author_name:
+                    title = f"{author_name} (@{author_handle}) on X"
+                elif author_handle:
+                    title = f"@{author_handle} on X"
+                if text:
+                    content = text
+
+                # Engagement stats
+                likes = tweet.get("likeCount") or tweet.get("favorite_count") or 0
+                retweets = tweet.get("retweetCount") or tweet.get("retweet_count") or 0
+                replies = tweet.get("replyCount") or tweet.get("reply_count") or 0
+                views = tweet.get("viewCount") or tweet.get("views") or 0
+                if any([likes, retweets, replies, views]):
+                    content += f"\n\n---\nLikes: {likes} | Retweets: {retweets} | Replies: {replies} | Views: {views}"
+
+                # Quote tweet
+                qt = tweet.get("quotedTweet") or tweet.get("quoted_status")
+                if qt:
+                    qt_author = (qt.get("author", {}) or {}).get("userName", "") or qt.get("user", {}).get("screen_name", "")
+                    qt_text = qt.get("text") or qt.get("full_text") or ""
+                    if qt_text:
+                        content += f"\n\n--- Quoted Tweet from @{qt_author} ---\n{qt_text}"
+
+                # Media thumbnail
+                for media_field in ["extendedEntities", "extended_entities", "entities"]:
+                    media_obj = tweet.get(media_field, {})
+                    if isinstance(media_obj, dict):
+                        for m in media_obj.get("media", []):
+                            url_key = m.get("media_url_https") or m.get("media_url")
+                            if url_key and not thumbnail:
+                                thumbnail = url_key
+                                break
+
+                if not thumbnail and author.get("profileImageUrl"):
+                    thumbnail = author["profileImageUrl"]
+
+                logger.info(f"🐦 Tweet extracted: @{author_handle}, {len(content)} chars")
+            else:
+                logger.warning("🐦 Apify returned empty or invalid response")
+                return _extract_twitter_og(url)
+        else:
+            logger.warning(f"Apify Tweet Scraper returned {resp.status_code}")
+            return _extract_twitter_og(url)
+    except Exception as e:
+        logger.warning(f"Apify Tweet Scraper failed: {e}")
+        return _extract_twitter_og(url)
+
+    if not content:
+        return _extract_twitter_og(url)
+
+    if len(title) > 450:
+        title = title[:450] + "..."
+
+    return {"title": title, "content": content, "thumbnail": thumbnail}
+
+
+def _extract_twitter_og(url: str) -> dict:
+    """Fallback: extract Twitter/X content via OG meta tags and nitter/fxtwitter."""
+    logger.info(f"🐦 Falling back to OG/fxtwitter for {url}")
+    import re
+
+    title = "Tweet"
+    content = ""
+    thumbnail = ""
+
+    # Try fxtwitter API (returns OG-friendly data)
+    try:
+        fx_url = re.sub(r'(twitter\.com|x\.com)', 'api.fxtwitter.com', url)
+        fx_url = re.sub(r'\?.*$', '', fx_url)  # strip query params
+        resp = requests.get(fx_url, timeout=15, verify=certifi.where())
+        if resp.status_code == 200:
+            data = resp.json()
+            tweet = data.get("tweet", {})
+            if tweet:
+                author_name = tweet.get("author", {}).get("name", "")
+                author_handle = tweet.get("author", {}).get("screen_name", "")
+                text = tweet.get("text", "")
+                if author_name:
+                    title = f"{author_name} (@{author_handle}) on X"
+                if text:
+                    content = text
+                likes = tweet.get("likes", 0)
+                retweets = tweet.get("retweets", 0)
+                replies = tweet.get("replies", 0)
+                if any([likes, retweets, replies]):
+                    content += f"\n\n---\nLikes: {likes} | Retweets: {retweets} | Replies: {replies}"
+                media = tweet.get("media", {})
+                if media and media.get("photos"):
+                    thumbnail = media["photos"][0].get("url", "")
+                elif tweet.get("author", {}).get("avatar_url"):
+                    thumbnail = tweet["author"]["avatar_url"]
+                logger.info(f"🐦 fxtwitter extracted: @{author_handle}, {len(content)} chars")
+    except Exception as e:
+        logger.warning(f"fxtwitter fallback failed: {e}")
+
+    # Final fallback: standard article scraper
+    if not content:
+        try:
+            return _extract_article(url)
+        except Exception:
+            pass
+
+    if len(title) > 450:
+        title = title[:450] + "..."
+    return {"title": title, "content": content or f"Tweet: {url}", "thumbnail": thumbnail}
+
+
 def _extract_article(url: str) -> dict:
     """Extract article content using BeautifulSoup."""
     headers = {
@@ -638,15 +786,156 @@ def auto_label_source(note_id: str, url: str):
         logger.warning(f"⚠️ Auto-labeling failed for {note_id}: {e}")
 
 
+# ── AI Topic Labeling ──────────────────────────────────
+
+TOPIC_LABEL_COLORS = {
+    "technology": "#4285F4",
+    "teknoloji": "#4285F4",
+    "science": "#34A853",
+    "bilim": "#34A853",
+    "cinema": "#E1306C",
+    "sinema": "#E1306C",
+    "film": "#E1306C",
+    "music": "#1DB954",
+    "müzik": "#1DB954",
+    "art": "#FF6B6B",
+    "sanat": "#FF6B6B",
+    "economics": "#FF9500",
+    "ekonomi": "#FF9500",
+    "finance": "#FF9500",
+    "finans": "#FF9500",
+    "sports": "#00C853",
+    "spor": "#00C853",
+    "health": "#00BCD4",
+    "sağlık": "#00BCD4",
+    "education": "#9C27B0",
+    "eğitim": "#9C27B0",
+    "politics": "#FF5722",
+    "siyaset": "#FF5722",
+    "food": "#8D6E63",
+    "yemek": "#8D6E63",
+    "travel": "#26C6DA",
+    "seyahat": "#26C6DA",
+    "gaming": "#7C4DFF",
+    "oyun": "#7C4DFF",
+    "fashion": "#F06292",
+    "moda": "#F06292",
+    "history": "#795548",
+    "tarih": "#795548",
+    "philosophy": "#607D8B",
+    "felsefe": "#607D8B",
+    "ai": "#b79fff",
+    "yapay zeka": "#b79fff",
+    "programming": "#00ACC1",
+    "programlama": "#00ACC1",
+    "business": "#FF6F00",
+    "iş": "#FF6F00",
+    "startup": "#FF6F00",
+    "design": "#62fae3",
+    "tasarım": "#62fae3",
+    "psychology": "#CE93D8",
+    "psikoloji": "#CE93D8",
+    "literature": "#A1887F",
+    "edebiyat": "#A1887F",
+}
+
+
+def auto_label_topics(note_id: str, title: str, ai_insight: str):
+    """Use LLM to extract topic labels from content and assign them."""
+    if not ai_insight or len(ai_insight) < 50:
+        return
+
+    try:
+        # Get user_id for this note
+        with engine.begin() as conn:
+            row = conn.execute(
+                text("SELECT user_id FROM notes WHERE id = :nid"),
+                {"nid": note_id}
+            ).fetchone()
+            if not row:
+                return
+            user_id = str(row[0])
+
+        # Ask LLM for topic labels (lightweight prompt, short response)
+        prompt = f"""Analyze this content and return 2-4 topic labels that best categorize it.
+Return ONLY a JSON array of lowercase label strings, nothing else.
+Use single-word or two-word labels like: technology, cinema, economics, art, music, sports, health, education, science, politics, history, philosophy, ai, programming, design, psychology, literature, food, travel, gaming, fashion, business, startup
+
+Title: {title[:200]}
+Content summary: {ai_insight[:500]}
+
+Response (JSON array only):"""
+
+        result = _call_claude_cli(prompt)
+        if result.startswith("⚠️"):
+            gemini_key = os.getenv("GEMINI_API_KEY")
+            if gemini_key:
+                result = _call_gemini_api(prompt, gemini_key)
+
+        # Parse JSON array from response
+        import re
+        match = re.search(r'\[([^\]]+)\]', result)
+        if not match:
+            return
+
+        labels_raw = json.loads(f"[{match.group(1)}]")
+        labels = [l.strip().lower() for l in labels_raw if isinstance(l, str) and len(l.strip()) < 30]
+
+        if not labels:
+            return
+
+        logger.info(f"🏷️ AI topic labels for {note_id}: {labels}")
+
+        for label_name in labels[:4]:
+            # Determine color
+            color = TOPIC_LABEL_COLORS.get(label_name, "#9093ff")
+            # Capitalize for display
+            display_name = label_name.capitalize()
+
+            # Find or create label
+            with engine.begin() as conn:
+                existing = conn.execute(
+                    text("SELECT id FROM labels WHERE user_id = :uid AND LOWER(name) = :name AND deleted_at IS NULL"),
+                    {"uid": user_id, "name": label_name}
+                ).fetchone()
+
+                if existing:
+                    label_id = str(existing[0])
+                else:
+                    result_row = conn.execute(
+                        text("INSERT INTO labels (id, user_id, name, color, created_at, updated_at) "
+                             "VALUES (gen_random_uuid(), :uid, :name, :color, NOW(), NOW()) RETURNING id"),
+                        {"uid": user_id, "name": display_name, "color": color}
+                    )
+                    label_id = str(result_row.fetchone()[0])
+
+            # Assign to note (avoid duplicates)
+            with engine.begin() as conn:
+                exists = conn.execute(
+                    text("SELECT 1 FROM note_labels WHERE note_id = :nid AND label_id = :lid"),
+                    {"nid": note_id, "lid": label_id}
+                ).fetchone()
+                if not exists:
+                    conn.execute(
+                        text("INSERT INTO note_labels (note_id, label_id) VALUES (:nid, :lid)"),
+                        {"nid": note_id, "lid": label_id}
+                    )
+
+    except Exception as e:
+        logger.warning(f"⚠️ AI topic labeling failed for {note_id}: {e}")
+
+
 # ── Comment Extraction ─────────────────────────────────
 
 def extract_comments(url: str) -> list:
-    """Extract comments from YouTube or Instagram URLs. Returns normalized list."""
+    """Extract comments from YouTube, Instagram, or Twitter URLs. Returns normalized list."""
     try:
         if any(domain in url for domain in ["youtube.com", "youtu.be"]):
             return _extract_youtube_comments(url)
         if "instagram.com" in url:
             return _extract_instagram_comments(url)
+        if any(domain in url for domain in ["twitter.com", "x.com"]):
+            return _extract_twitter_replies(url)
     except Exception as e:
         logger.warning(f"⚠️ Comment extraction failed for {url}: {e}")
     return []
@@ -732,6 +1021,85 @@ def _extract_instagram_comments(url: str) -> list:
     except Exception as e:
         logger.warning(f"⚠️ Instagram comment extraction failed: {e}")
         return []
+
+
+def _extract_twitter_replies(url: str) -> list:
+    """Extract Twitter/X replies using Apify Tweet Scraper."""
+    import re
+    APIFY_TOKEN = os.getenv("APIFY_TOKEN", "")
+    if not APIFY_TOKEN:
+        return []
+
+    match = re.search(r'/status/(\d+)', url)
+    if not match:
+        return []
+    tweet_id = match.group(1)
+
+    # Extract author handle from URL for search
+    handle_match = re.search(r'(?:twitter\.com|x\.com)/(\w+)/status', url)
+    handle = handle_match.group(1) if handle_match else ""
+
+    logger.info(f"🐦 Extracting Twitter replies for tweet {tweet_id}")
+    comments = []
+
+    # Method 1: conversationIds
+    try:
+        resp = requests.post(
+            f"https://api.apify.com/v2/acts/apidojo~tweet-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}",
+            json={"conversationIds": [tweet_id], "maxItems": 200, "sort": "Top"},
+            timeout=120,
+        )
+        if resp.status_code in (200, 201):
+            tweets = resp.json()
+            if isinstance(tweets, list):
+                for t in tweets:
+                    if t.get("noResults"):
+                        continue
+                    if str(t.get("id")) == tweet_id:
+                        continue
+                    author = t.get("author", {}) or {}
+                    text = t.get("text") or t.get("full_text") or ""
+                    if not text:
+                        continue
+                    comments.append({
+                        "author": author.get("userName") or author.get("screen_name") or "Unknown",
+                        "text": text,
+                        "like_count": t.get("likeCount") or t.get("favorite_count") or 0,
+                        "is_pinned": False,
+                    })
+    except Exception as e:
+        logger.warning(f"⚠️ Twitter conversationIds failed: {e}")
+
+    # Method 2: if conversationIds returned nothing, try search for replies
+    if not comments and handle:
+        try:
+            resp = requests.post(
+                f"https://api.apify.com/v2/acts/apidojo~tweet-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}",
+                json={"searchTerms": [f"to:{handle}"], "maxItems": 100, "sort": "Top"},
+                timeout=120,
+            )
+            if resp.status_code in (200, 201):
+                tweets = resp.json()
+                if isinstance(tweets, list):
+                    for t in tweets:
+                        if t.get("noResults"):
+                            continue
+                        author = t.get("author", {}) or {}
+                        text = t.get("text") or t.get("full_text") or ""
+                        if not text:
+                            continue
+                        comments.append({
+                            "author": author.get("userName") or author.get("screen_name") or "Unknown",
+                            "text": text,
+                            "like_count": t.get("likeCount") or t.get("favorite_count") or 0,
+                            "is_pinned": False,
+                        })
+        except Exception as e:
+            logger.warning(f"⚠️ Twitter search replies failed: {e}")
+
+    comments.sort(key=lambda x: x["like_count"], reverse=True)
+    logger.info(f"🐦 Extracted {len(comments)} Twitter replies")
+    return comments
 
 
 def generate_community_insights(comments: list, language: str = "en") -> str:
@@ -828,6 +1196,9 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
         # Step 7: Auto-label based on source URL
         auto_label_source(note_id, url)
 
+        # Step 8: AI-based topic labels from content
+        auto_label_topics(note_id, extracted["title"], ai_summary)
+
         logger.info(f"✅ Note {note_id} processed successfully")
         return {"status": "success", "note_id": note_id}
 
@@ -883,5 +1254,29 @@ def backfill_embeddings(self):
             logger.warning(f"Backfill failed for {row[0]}: {e}")
 
     logger.info(f"📐 Backfill complete: {count}/{len(rows)} notes embedded")
+    return {"embedded": count, "total": len(rows)}
+
+
+@app.task(bind=True, max_retries=1)
+def backfill_topic_labels(self):
+    """Backfill AI topic labels for all notes that have AI insights."""
+    import time as _time
+    logger.info("🏷️ Starting topic label backfill...")
+
+    query = text("SELECT id, title, ai_insight FROM notes WHERE deleted_at IS NULL AND length(ai_insight) > 50")
+    with engine.begin() as conn:
+        rows = conn.execute(query).fetchall()
+
+    count = 0
+    for row in rows:
+        try:
+            auto_label_topics(str(row[0]), row[1] or "", row[2] or "")
+            count += 1
+            logger.info(f"🏷️ Labeled {count}/{len(rows)}: {row[1][:50]}")
+            _time.sleep(1)  # Rate limit LLM calls
+        except Exception as e:
+            logger.warning(f"Topic label failed for {row[0]}: {e}")
+
+    logger.info(f"🏷️ Topic label backfill complete: {count}/{len(rows)} notes labeled")
     return {"embedded": count, "total": len(rows)}
 
