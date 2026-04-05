@@ -3,8 +3,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { labelsAPI } from './api';
+import { initAnalytics } from './analytics';
 import Sidebar from './components/Sidebar';
+import SplashScreen from './components/SplashScreen';
+import OnboardingPage from './pages/OnboardingPage';
 import LoginPage from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
 import VaultPage from './pages/VaultPage';
 import EditorPage from './pages/EditorPage';
 import SharePage from './pages/SharePage';
@@ -58,6 +62,12 @@ function ProtectedLayout() {
 
 function AppRoutes() {
   const { user, loading } = useAuth();
+  const [onboarded, setOnboarded] = useState(() => localStorage.getItem('aether_onboarded') === '1');
+
+  // Show onboarding for users who haven't seen it yet
+  if (!onboarded && !loading) {
+    return <OnboardingPage onComplete={() => setOnboarded(true)} />;
+  }
 
   return (
     <Routes>
@@ -77,7 +87,8 @@ function AppRoutes() {
       />
       <Route path="/shared/:token" element={<SharedNotePage />} />
       <Route element={<ProtectedLayout />}>
-        <Route path="/vault" element={<VaultPage />} />
+        <Route path="/vault" element={<DashboardPage />} />
+        <Route path="/vault/list" element={<VaultPage />} />
         <Route path="/vault/:id" element={<EditorPage />} />
         <Route path="/share" element={<SharePage />} />
         <Route path="/settings" element={<SettingsPage />} />
@@ -96,11 +107,16 @@ function AppRoutes() {
 }
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => { initAnalytics(); }, []);
+
   return (
     <BrowserRouter>
       <AuthProvider>
         <LanguageProvider>
-          <AppRoutes />
+          {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
+          {!showSplash && <AppRoutes />}
         </LanguageProvider>
       </AuthProvider>
     </BrowserRouter>

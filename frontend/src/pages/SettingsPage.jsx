@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useOutletContext, useNavigate } from 'react-router-dom';
 import { usersAPI } from '../api';
+import { Capacitor } from '@capacitor/core';
 import LabelManager from '../components/LabelManager';
+import { trackDeleteAccount, trackScreenView } from '../analytics';
 
 function LangButton({ active, onClick, children }) {
   return (
@@ -31,12 +33,44 @@ export default function SettingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  useEffect(() => { trackScreenView('Settings'); }, []);
   const effectiveAiLang = aiLang || lang;
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const isNativePlatform = Capacitor.isNativePlatform();
+
+  useEffect(() => {
+    if (!isNativePlatform) return;
+    import('@capacitor/local-notifications').then(({ LocalNotifications }) => {
+      LocalNotifications.checkPermissions().then(p => {
+        setNotifEnabled(p.display === 'granted');
+      });
+    }).catch(() => {});
+  }, []);
+
+  const toggleNotifications = async () => {
+    if (!isNativePlatform) return;
+    try {
+      const { LocalNotifications } = await import('@capacitor/local-notifications');
+      if (notifEnabled) {
+        // Can't revoke — direct to system settings
+        if (Capacitor.getPlatform() === 'ios') {
+          window.open('app-settings:', '_system');
+        }
+      } else {
+        const perm = await LocalNotifications.requestPermissions();
+        setNotifEnabled(perm.display === 'granted');
+        if (perm.display !== 'granted' && Capacitor.getPlatform() === 'ios') {
+          window.open('app-settings:', '_system');
+        }
+      }
+    } catch {}
+  };
 
   async function handleDeleteAccount() {
     setDeleting(true);
     try {
       await usersAPI.deleteAccount();
+      trackDeleteAccount();
       await logout();
       navigate('/login');
     } catch (err) {
@@ -96,6 +130,40 @@ export default function SettingsPage() {
             </LangButton>
           </div>
         </section>
+
+        {/* Notifications */}
+        {isNativePlatform && (
+          <section style={{
+            background: 'var(--surface)',
+            padding: 'var(--space-5)',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--outline-variant)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', marginBottom: 'var(--space-1)' }}>
+                  {lang === 'tr' ? 'Bildirimler' : 'Notifications'}
+                </h2>
+                <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.8125rem', margin: 0 }}>
+                  {lang === 'tr' ? 'Islem tamamlandiginda bildir' : 'Notify when processing completes'}
+                </p>
+              </div>
+              <button
+                onClick={toggleNotifications}
+                style={{
+                  width: 50, height: 28, borderRadius: 14, border: 'none', cursor: 'pointer',
+                  background: notifEnabled ? 'var(--primary)' : 'var(--surface-container-highest)',
+                  position: 'relative', transition: 'background 0.2s',
+                }}>
+                <span style={{
+                  position: 'absolute', top: 3, left: notifEnabled ? 25 : 3,
+                  width: 22, height: 22, borderRadius: '50%', background: '#fff',
+                  transition: 'left 0.2s',
+                }} />
+              </button>
+            </div>
+          </section>
+        )}
 
         {/* Manage Labels */}
         <section className="settings-section">

@@ -90,6 +90,11 @@ func ChatMessage(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
+	c.Header("Transfer-Encoding", "chunked")
+
+	// Send initial SSE comment to establish the stream connection
+	fmt.Fprintf(c.Writer, ": stream opened\n\n")
+	c.Writer.Flush()
 
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
@@ -100,11 +105,24 @@ func ChatMessage(c *gin.Context) {
 	fullResponse, err := streamGeminiResponse(c, apiKey, messages)
 	if err != nil {
 		log.Printf("❌ Chat Gemini error: %v", err)
-		sendSSE(c, "error", fmt.Sprintf(`{"error":"%s"}`, err.Error()))
+		errMsg := "AI is temporarily unavailable. Please try again in a moment."
+		if strings.Contains(err.Error(), "429") {
+			errMsg = "AI rate limit reached. Please wait a minute and try again."
+		}
+		errJSON, _ := json.Marshal(map[string]string{"error": errMsg})
+		sendSSE(c, "error", string(errJSON))
 		return
 	}
 
-	// Save assistant response to DB
+	// Save assistant response to DB (only if non-empty)
+	if fullResponse == "" {
+		log.Printf("⚠️ Chat: Gemini returned empty response for session %s", sessionID)
+		errJSON, _ := json.Marshal(map[string]string{"error": "AI returned empty response. Please try again."})
+		sendSSE(c, "error", string(errJSON))
+		c.Writer.Flush()
+		return
+	}
+
 	assistantMsg := models.ChatMessage{
 		UserID:    user.ID,
 		SessionID: sessionID,
@@ -233,7 +251,7 @@ func buildVaultContext(user *models.User, query string) vaultContext {
 	for _, n := range recentNotes {
 		insight := n.AIInsight
 		if len(insight) > 300 {
-			insight = insight[:300] + "..."
+			insight = insight[:150] + "..."
 		}
 		ctx.RecentNotes = append(ctx.RecentNotes, noteSnippet{
 			ID: n.ID.String(), Title: n.Title, Insight: insight, UpdatedAt: n.UpdatedAt,
@@ -257,7 +275,7 @@ func buildVaultContext(user *models.User, query string) vaultContext {
 		for _, n := range relevant {
 			insight := n.AIInsight
 			if len(insight) > 300 {
-				insight = insight[:300] + "..."
+				insight = insight[:150] + "..."
 			}
 			ctx.RelevantNotes = append(ctx.RelevantNotes, noteSnippet{
 				ID: n.ID.String(), Title: n.Title, Insight: insight, UpdatedAt: n.UpdatedAt,
@@ -323,9 +341,15 @@ type geminiPart struct {
 	Text string `json:"text"`
 }
 
+type geminiSafety struct {
+	Category  string `json:"category"`
+	Threshold string `json:"threshold"`
+}
+
 type geminiRequest struct {
 	SystemInstruction *geminiContent  `json:"systemInstruction,omitempty"`
 	Contents          []geminiContent `json:"contents"`
+	SafetySettings    []geminiSafety  `json:"safetySettings,omitempty"`
 }
 
 func buildGeminiMessages(systemPrompt string, history []models.ChatMessage) geminiRequest {
@@ -333,6 +357,12 @@ func buildGeminiMessages(systemPrompt string, history []models.ChatMessage) gemi
 		SystemInstruction: &geminiContent{
 			Role:  "user",
 			Parts: []geminiPart{{Text: systemPrompt}},
+		},
+		SafetySettings: []geminiSafety{
+			{Category: "HARM_CATEGORY_HARASSMENT", Threshold: "BLOCK_ONLY_HIGH"},
+			{Category: "HARM_CATEGORY_HATE_SPEECH", Threshold: "BLOCK_ONLY_HIGH"},
+			{Category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", Threshold: "BLOCK_ONLY_HIGH"},
+			{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: "BLOCK_ONLY_HIGH"},
 		},
 	}
 
@@ -383,14 +413,24 @@ func streamGeminiResponse(c *gin.Context, apiKey string, messages geminiRequest)
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
+	lineCount := 0
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineCount++
+		if lineCount <= 3 {
+			log.Printf("📡 Chat SSE line %d: %s", lineCount, line[:min(len(line), 200)])
+		}
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
 			break
+		}
+
+		// Log first data chunk
+		if fullResponse.Len() == 0 {
+			log.Printf("📡 Chat first data chunk: %s", data[:min(len(data), 300)])
 		}
 
 		var chunk struct {
@@ -401,10 +441,25 @@ func streamGeminiResponse(c *gin.Context, apiKey string, messages geminiRequest)
 					} `json:"parts"`
 				} `json:"content"`
 			} `json:"candidates"`
+			PromptFeedback struct {
+				BlockReason string `json:"blockReason"`
+			} `json:"promptFeedback"`
 		}
 
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
+		}
+
+		// Check if blocked by safety
+		if chunk.PromptFeedback.BlockReason != "" {
+			log.Printf("⚠️ Chat blocked by Gemini safety: %s", chunk.PromptFeedback.BlockReason)
+			// Return a friendly message instead of empty
+			fallback := "I can help you explore your vault. Could you rephrase your question?"
+			fullResponse.WriteString(fallback)
+			tokenJSON, _ := json.Marshal(map[string]string{"text": fallback})
+			sendSSE(c, "token", string(tokenJSON))
+			c.Writer.Flush()
+			break
 		}
 
 		for _, candidate := range chunk.Candidates {

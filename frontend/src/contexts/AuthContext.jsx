@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { setAuthToken, getAuthToken } from '../api';
+import { setAuthToken, getAuthToken, usersAPI } from '../api';
+import { Capacitor } from '@capacitor/core';
 
 const AuthContext = createContext(null);
 
@@ -59,6 +60,26 @@ export function AuthProvider({ children }) {
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [user, refreshToken]);
+
+  // Register FCM token for push notifications
+  useEffect(() => {
+    if (!user || isDevMode || !Capacitor.isNativePlatform()) return;
+    (async () => {
+      try {
+        const { FirebaseMessaging } = await import('@capacitor-firebase/messaging');
+        const { token } = await FirebaseMessaging.getToken();
+        if (token) {
+          await usersAPI.registerFCMToken(token);
+        }
+        // Listen for token refresh
+        FirebaseMessaging.addListener('tokenReceived', async ({ token: newToken }) => {
+          if (newToken) await usersAPI.registerFCMToken(newToken);
+        });
+      } catch (err) {
+        console.warn('FCM registration failed:', err);
+      }
+    })();
+  }, [user]);
 
   // Extension token request listener
   useEffect(() => {

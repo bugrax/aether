@@ -10,7 +10,12 @@ export default defineConfig({
   envDir: '../',
   build: {
     rollupOptions: {
-      external: isDocker ? ['@capacitor-firebase/authentication'] : [],
+      external: isDocker ? [
+        '@capacitor-firebase/authentication',
+        '@capacitor-firebase/analytics',
+        '@capacitor-firebase/messaging',
+        '@capacitor/local-notifications',
+      ] : [],
     },
   },
 })

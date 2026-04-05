@@ -191,6 +191,33 @@ These override docker-compose.yml defaults. When adding new env vars:
 - `share_token` column: partial unique index `WHERE share_token != ''`
 - `ai_language` column: separate from `language` (UI language)
 
+## Design System — Stitch MCP Integration
+
+### MANDATORY: Always use Stitch MCP for design tasks
+- **All UI designs** must be created via `mcp__stitch__generate_screen_from_text` or `mcp__stitch__edit_screens`
+- **Always use `GEMINI_3_1_PRO` model** for generation (not Flash)
+- **Project ID**: `17075646967174213052`
+- **When extracting designs from Stitch**, always download the HTML code (`htmlCode.downloadUrl`) and convert to React components — never use static images/screenshots
+- Stitch screens contain Tailwind CSS + Material Symbols + custom styles — convert these to the app's CSS variables and React inline styles
+
+### Stitch Prompting Best Practices (from Google guide)
+- Be specific about dimensions (e.g., "iPhone 390x844")
+- Specify exact colors with hex codes (#b79fff, #0e0e0e, #62fae3)
+- Name fonts explicitly (Space Grotesk, Manrope)
+- Describe layout structure top-to-bottom
+- Reference the design system tokens (surface, primary, on-surface-variant)
+- For icons, specify Material Symbols names (e.g., `psychology`, `shield`, `forum`)
+- Always specify device type: MOBILE for phones, DESKTOP for web/tablet
+
+### Halftone Logo
+The Aether logo is a halftone dot grid pattern:
+```css
+background-image: radial-gradient(#b79fff 20%, transparent 20%), radial-gradient(#b79fff 20%, transparent 20%);
+background-position: 0 0, 10px 10px;
+background-size: 20px 20px;
+mask-image: radial-gradient(circle, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 40%, rgba(0,0,0,0) 70%);
+```
+
 ## Common Pitfalls — DO NOT REPEAT
 
 1. **Never use `.replace("m.", "")` on domains** — breaks instagram.com

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0e0e0e; color: #fff; font-family: -apple-system, sans-serif; height: 100vh; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; display: none; }
+.panel { position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a1a; border-radius: 20px 20px 0 0;
+  max-height: 55vh; display: none; flex-direction: column; z-index: 101; overflow: hidden;
+  transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.panel.show { display: flex; animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+.panel.expanded { max-height: 92vh; }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.handle-zone { display: flex; align-items: center; justify-content: center; height: 44px; flex-shrink: 0; cursor: pointer; }
+.handle-bar { width: 40px; height: 5px; border-radius: 3px; background: #777; }
+.header { display: flex; align-items: center; justify-content: space-between; padding: 0 16px 12px; flex-shrink: 0; }
+.brand { display: flex; align-items: center; gap: 8px; }
+.logo { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #b79fff, #9093ff);
+  display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+.messages { flex: 1; overflow-y: auto; padding: 0 16px; display: flex; flex-direction: column; justify-content: flex-end; }
+.bubble { background: rgba(183,159,255,0.08); border: 1px solid rgba(183,159,255,0.12); border-radius: 16px; padding: 16px; font-size: 15px; line-height: 1.6; }
+.chips { display: flex; gap: 8px; padding: 12px 16px; overflow-x: auto; flex-shrink: 0; }
+.chip { flex-shrink: 0; padding: 8px 16px; border-radius: 999px; background: #262626; border: 1px solid #494847; font-size: 13px; color: #fff; cursor: pointer; }
+.input-bar { display: flex; align-items: center; gap: 8px; background: #262626; border: 1px solid #494847; border-radius: 999px; padding: 6px 12px; margin: 0 16px 16px; flex-shrink: 0; }
+.input-bar input { flex: 1; background: none; border: none; color: #fff; outline: none; font-size: 14px; }
+.open-btn { position: fixed; bottom: 20px; right: 20px; width: 52px; height: 52px; border-radius: 50%;
+  background: linear-gradient(135deg, #b79fff, #9093ff); border: none; color: #fff; font-size: 20px; font-weight: 700; cursor: pointer; z-index: 50; }
+#log { position: fixed; top: 10px; left: 10px; background: rgba(0,0,0,0.9); color: lime; font-size: 12px; padding: 8px 12px; border-radius: 8px; z-index: 200; max-height: 120px; overflow-y: auto; }
+.bg-content { padding: 20px; }
+.bg-content h1 { font-size: 24px; margin-bottom: 16px; }
+.bg-card { background: #1a1a1a; border-radius: 12px; padding: 16px; margin-bottom: 12px; border: 1px solid #333; }
+</style>
+</head>
+<body>
+  <div id="log">Tap A to open</div>
+
+  <div class="bg-content">
+    <h1>Vault</h1>
+    <div class="bg-card"><p>YouTube: AI Research video</p></div>
+    <div class="bg-card"><p>Instagram: Tech post</p></div>
+    <div class="bg-card"><p>Article: Machine Learning</p></div>
+  </div>
+
+  <button class="open-btn" id="openBtn">A</button>
+  <div class="overlay" id="overlay"></div>
+  <div class="panel" id="panel">
+    <div class="handle-zone" id="handleZone"><div class="handle-bar"></div></div>
+    <div class="header">
+      <div class="brand"><div class="logo">A</div><span style="color:#aaa;font-size:13px">Aether AI</span></div>
+      <span style="color:#777">&#x1f554;</span>
+    </div>
+    <div class="messages">
+      <div class="bubble">Hey there, you've been exploring a lot of AI content. Want me to find connections between your saved notes?</div>
+    </div>
+    <div class="chips">
+      <div class="chip">Summarize my week</div>
+      <div class="chip">Find connections</div>
+      <div class="chip">What did I save?</div>
+    </div>
+    <div class="input-bar">
+      <span style="color:#777;font-size:20px">+</span>
+      <input id="chatInput" placeholder="Ask Aether anything..." />
+      <span style="color:#777">&#x1f3a4;</span>
+    </div>
+  </div>
+
+  <script>
+    const log = document.getElementById('log');
+    const panel = document.getElementById('panel');
+    const overlay = document.getElementById('overlay');
+    const handleZone = document.getElementById('handleZone');
+    const openBtn = document.getElementById('openBtn');
+    const chatInput = document.getElementById('chatInput');
+    let expanded = false;
+
+    function logMsg(msg) { log.textContent = msg; }
+
+    openBtn.addEventListener('click', () => {
+      panel.classList.add('show');
+      panel.classList.remove('expanded');
+      overlay.style.display = 'block';
+      expanded = false;
+      document.body.style.overflow = 'hidden';
+      logMsg('Opened 55vh');
+    });
+
+    overlay.addEventListener('click', () => {
+      panel.classList.remove('show', 'expanded');
+      overlay.style.display = 'none';
+      document.body.style.overflow = '';
+      expanded = false;
+      logMsg('Closed');
+    });
+
+    // Handle zone: tap to toggle expand
+    handleZone.addEventListener('click', () => {
+      expanded = !expanded;
+      panel.classList.toggle('expanded', expanded);
+      logMsg(expanded ? 'Expanded 92vh' : 'Collapsed 55vh');
+    });
+
+    // Input focus → expand
+    chatInput.addEventListener('focus', () => {
+      if (!expanded) {
+        expanded = true;
+        panel.classList.add('expanded');
+        logMsg('Expanded via input focus');
+      }
+    });
+
+    // Drag to dismiss (down only)
+    let dragActive = false, startY = 0, currentDelta = 0;
+
+    panel.addEventListener('touchstart', (e) => {
+      const rect = panel.getBoundingClientRect();
+      const ty = e.touches[0].clientY;
+      if (ty - rect.top > 50) return;
+      dragActive = true;
+      startY = ty;
+      currentDelta = 0;
+      panel.style.transition = 'none';
+    }, { passive: true });
+
+    panel.addEventListener('touchmove', (e) => {
+      if (!dragActive) return;
+      e.preventDefault();
+      const ty = e.touches[0].clientY;
+      currentDelta = ty - startY;
+      if (currentDelta > 0) {
+        panel.style.transform = 'translateY(' + currentDelta + 'px)';
+      }
+    }, { passive: false });
+
+    panel.addEventListener('touchend', () => {
+      if (!dragActive) return;
+      dragActive = false;
+      if (currentDelta > 120) {
+        panel.style.transition = 'transform 0.3s ease';
+        panel.style.transform = 'translateY(100%)';
+        setTimeout(() => {
+          panel.classList.remove('show', 'expanded');
+          panel.style.transform = '';
+          panel.style.transition = '';
+          overlay.style.display = 'none';
+          document.body.style.overflow = '';
+          expanded = false;
+          logMsg('Closed via drag');
+        }, 300);
+      } else {
+        panel.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+        panel.style.transform = '';
+        setTimeout(() => { panel.style.transition = ''; }, 300);
+      }
+    }, { passive: true });
+  </script>
+</body>
+</html>

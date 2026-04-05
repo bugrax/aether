@@ -50,7 +50,7 @@ func ListNotes(c *gin.Context) {
 	var notes []models.Note
 	query := database.DB.Where("user_id = ?", user.ID).
 		Preload("Labels").
-		Order("updated_at DESC")
+		Order("created_at DESC")
 
 	// Optional status filter
 	if status := c.Query("status"); status != "" {
@@ -234,9 +234,13 @@ func ShareURL(c *gin.Context) {
 	}
 
 	// Create note with "processing" status
+	processingTitle := "Processing..."
+	if user.Language == "tr" {
+		processingTitle = "İşleniyor..."
+	}
 	note := models.Note{
 		UserID:    user.ID,
-		Title:     "Processing...",
+		Title:     processingTitle,
 		SourceURL: req.URL,
 		Status:    models.StatusProcessing,
 	}

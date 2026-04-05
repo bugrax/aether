@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { notesAPI } from '../api';
+import { trackLinkCapture, trackScreenView } from '../analytics';
 
 export default function SharePage() {
   const [url, setUrl] = useState('');
@@ -9,6 +10,8 @@ export default function SharePage() {
   const [error, setError] = useState(null);
   const navigate = useNavigate();
   const { t } = useLanguage();
+
+  useEffect(() => { trackScreenView('CaptureLink'); }, []);
 
   async function handleShare(e) {
     e.preventDefault();
@@ -19,6 +22,7 @@ export default function SharePage() {
 
     try {
       await notesAPI.shareURL(url.trim());
+      trackLinkCapture(url.trim(), 'web');
       navigate('/vault');
     } catch (err) {
       setError(err.message);

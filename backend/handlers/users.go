@@ -65,6 +65,26 @@ func UpdateSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Settings updated"})
 }
 
+// RegisterFCMToken saves the user's FCM push notification token.
+func RegisterFCMToken(c *gin.Context) {
+	user := middleware.GetUser(c)
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		Token string `json:"token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	database.DB.Model(&user).Update("fcm_token", req.Token)
+	c.JSON(http.StatusOK, gin.H{"message": "FCM token registered"})
+}
+
 // DeleteAccount permanently deletes the user's account and all associated data.
 func DeleteAccount(c *gin.Context) {
 	user := middleware.GetUser(c)

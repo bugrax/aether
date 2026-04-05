@@ -3,6 +3,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { notesAPI } from '../api';
 import { stripHTML } from '../components/editor/editorUtils';
+import { trackViewModeChange, trackPullToRefresh, trackNoteOpen, trackScreenView } from '../analytics';
+
+function translateLabel(name, t) {
+  const key = 'label_' + name.toLowerCase();
+  const translated = t(key);
+  return translated !== key ? translated : name;
+}
 
 // ── Date Helpers ─────────────────────────────────────
 
@@ -39,16 +46,21 @@ function getDateGroup(dateStr, t) {
 
 // ── Sub-components ───────────────────────────────────
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, t }) {
   if (status === 'ready') return null;
   const colors = {
     processing: '#c5a5ff',
     draft: '#ffb86c',
     error: '#ff6e84',
   };
+  const labels = {
+    processing: t('filter_processing'),
+    draft: t('filter_draft'),
+    error: t('filter_error'),
+  };
   return (
     <span className="note-status-badge" style={{ color: colors[status] || '#62fae3' }}>
-      {status || 'draft'}
+      {labels[status] || status || t('filter_draft')}
     </span>
   );
 }
@@ -91,10 +103,12 @@ function NoteCard({ note, onClick, onRequestDelete, t }) {
       )}
       <div className="note-card-title">{note.title || t('untitled')}</div>
       <p className="note-card-preview">
-        {note.content ? stripHTML(note.content).substring(0, 150) + '...' : t('no_content_yet')}
+        {note.ai_insight ? stripHTML(note.ai_insight).replace(/[#*_\-|>]+/g, '').replace(/\s+/g, ' ').substring(0, 150) + '...'
+          : note.content ? stripHTML(note.content).substring(0, 150) + '...'
+          : t('no_content_yet')}
       </p>
       <div className="note-card-meta">
-        <span className="note-card-date">{formatDate(note.updated_at, t)}</span>
+        <span className="note-card-date">{formatDate(note.created_at, t)}</span>
         <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
           {note.source_url && (
             <button
@@ -129,7 +143,7 @@ function NoteCard({ note, onClick, onRequestDelete, t }) {
               <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
             </svg>
           </button>
-          <StatusBadge status={note.status} />
+          <StatusBadge status={note.status} t={t} />
         </div>
       </div>
       {note.labels && note.labels.length > 0 && (
@@ -140,7 +154,7 @@ function NoteCard({ note, onClick, onRequestDelete, t }) {
               className="note-label-chip"
               style={{ borderLeft: `3px solid ${label.color || '#8B5CF6'}` }}
             >
-              {label.name}
+              {translateLabel(label.name, t)}
             </span>
           ))}
         </div>
@@ -244,8 +258,13 @@ export default function VaultPage() {
   const allNotesRef = useRef([]);
 
   const PAGE_SIZE = 20;
+  const [refreshing, setRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const pullRef = useRef({ startY: 0, pulling: false });
+  const vaultRef = useRef(null);
 
   useEffect(() => {
+    trackScreenView('Vault');
     setSearch('');
     setIsSearchActive(false);
     setSearching(false);
@@ -297,6 +316,52 @@ export default function VaultPage() {
     observerRef.current.observe(sentinelRef.current);
     return () => observerRef.current?.disconnect();
   }, [hasMore, loadingMore, isSearchActive]);
+
+  // Pull-to-refresh
+  useEffect(() => {
+    const el = vaultRef.current;
+    if (!el) return;
+    const parent = el.closest('.main-content') || el;
+
+    const onStart = (e) => {
+      if (parent.scrollTop <= 0 && !refreshing) {
+        pullRef.current = { startY: e.touches[0].clientY, pulling: true };
+      }
+    };
+    const onMove = (e) => {
+      if (!pullRef.current.pulling || refreshing) return;
+      const dy = e.touches[0].clientY - pullRef.current.startY;
+      if (dy > 0 && parent.scrollTop <= 0) {
+        e.preventDefault();
+        const distance = Math.min(dy * 0.5, 80);
+        setPullDistance(distance);
+      }
+    };
+    const onEnd = () => {
+      if (!pullRef.current.pulling || refreshing) return;
+      pullRef.current.pulling = false;
+      if (pullDistance >= 60) {
+        setRefreshing(true);
+        setPullDistance(60);
+        trackPullToRefresh();
+        loadNotes(true).finally(() => {
+          setRefreshing(false);
+          setPullDistance(0);
+        });
+      } else {
+        setPullDistance(0);
+      }
+    };
+
+    parent.addEventListener('touchstart', onStart, { passive: true });
+    parent.addEventListener('touchmove', onMove, { passive: false });
+    parent.addEventListener('touchend', onEnd, { passive: true });
+    return () => {
+      parent.removeEventListener('touchstart', onStart);
+      parent.removeEventListener('touchmove', onMove);
+      parent.removeEventListener('touchend', onEnd);
+    };
+  });
 
   async function loadNotes(reset = false) {
     if (reset) {
@@ -410,14 +475,14 @@ export default function VaultPage() {
   const processedNotes = notes
     .filter(n => !statusFilter || n.status === statusFilter)
     .sort((a, b) => {
-      if (sortBy === 'oldest') return new Date(a.updated_at) - new Date(b.updated_at);
+      if (sortBy === 'oldest') return new Date(a.created_at) - new Date(b.created_at);
       if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
-      return new Date(b.updated_at) - new Date(a.updated_at);
+      return new Date(b.created_at) - new Date(a.created_at);
     });
 
   // Group by date
   const grouped = processedNotes.reduce((acc, note) => {
-    const group = getDateGroup(note.updated_at, t);
+    const group = getDateGroup(note.created_at, t);
     if (!acc[group]) acc[group] = [];
     acc[group].push(note);
     return acc;
@@ -453,9 +518,25 @@ export default function VaultPage() {
   }
 
   return (
-    <div className="vault-page">
-      {/* Toolbar — only show when 3+ notes */}
-      {processedNotes.length >= 3 && <div className="vault-toolbar">
+    <div className="vault-page" ref={vaultRef}>
+      {/* Pull-to-refresh indicator */}
+      {(pullDistance > 0 || refreshing) && (
+        <div className="pull-refresh-indicator" style={{
+          height: pullDistance,
+          transition: pullRef.current.pulling ? 'none' : 'height 0.3s ease',
+        }}>
+          <div className={`pull-refresh-circle ${pullDistance >= 60 || refreshing ? 'ready' : ''} ${refreshing ? 'spinning' : ''}`}
+               style={{ transform: `rotate(${pullDistance * 4}deg)` }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="1 4 1 10 7 10" />
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+            </svg>
+          </div>
+        </div>
+      )}
+
+      {/* Toolbar — show when 3+ notes OR when a filter is active */}
+      {(notes.length >= 3 || statusFilter) && <div className="vault-toolbar">
         <div className="vault-controls">
           <select
             className="vault-select"
@@ -480,14 +561,14 @@ export default function VaultPage() {
           <div className="vault-view-toggle">
             <button
               className={`vault-view-btn ${viewMode === 'grouped' ? 'active' : ''}`}
-              onClick={() => setViewMode('grouped')}
+              onClick={() => { setViewMode('grouped'); trackViewModeChange('grouped'); }}
               title={t('grouped_view')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
             </button>
             <button
               className={`vault-view-btn ${viewMode === 'flat' ? 'active' : ''}`}
-              onClick={() => setViewMode('flat')}
+              onClick={() => { setViewMode('flat'); trackViewModeChange('flat'); }}
               title={t('flat_view')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
@@ -509,6 +590,18 @@ export default function VaultPage() {
               <p>{t('try_different_search') || 'Try a different search term'}</p>
               <button className="vault-empty-btn" onClick={clearSearch}>
                 {t('clear_search') || 'Clear search'}
+              </button>
+            </>
+          ) : statusFilter ? (
+            <>
+              <div className="vault-empty-glyph">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{opacity: 0.5}}>
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                </svg>
+              </div>
+              <h2>{t('no_results')}</h2>
+              <button className="vault-empty-btn" onClick={() => setStatusFilter('')}>
+                {t('filter_all')}
               </button>
             </>
           ) : (
@@ -540,7 +633,7 @@ export default function VaultPage() {
                   <NoteCard
                     key={note.id}
                     note={note}
-                    onClick={() => navigate(`/vault/${note.id}`)}
+                    onClick={() => { trackNoteOpen(note.id, 'vault'); navigate(`/vault/${note.id}`); }}
                     onRequestDelete={requestDelete}
                     t={t}
                   />
@@ -550,15 +643,43 @@ export default function VaultPage() {
           ))}
         </div>
       ) : (
-        <div className="notes-grid">
+        <div className="notes-list-compact">
           {processedNotes.map(note => (
-            <NoteCard
+            <article
               key={note.id}
-              note={note}
-              onClick={() => navigate(`/vault/${note.id}`)}
-              onRequestDelete={requestDelete}
-              t={t}
-            />
+              className="note-list-item fade-in"
+              onClick={() => { trackNoteOpen(note.id, 'vault'); navigate(`/vault/${note.id}`); }}
+            >
+              {note.thumbnail_url ? (
+                <div className="note-list-thumb">
+                  <img src={note.thumbnail_url} alt="" loading="lazy" />
+                </div>
+              ) : (
+                <div className="note-list-thumb note-list-thumb-empty">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                </div>
+              )}
+              <div className="note-list-info">
+                <span className="note-list-title">{note.title || t('untitled')}</span>
+                <span className="note-list-meta">{formatDate(note.created_at, t)}</span>
+                {note.labels && note.labels.length > 0 && (
+                  <div className="note-list-labels">
+                    {note.labels.map(label => (
+                      <span key={label.id} className="note-list-label" style={{ borderColor: label.color || '#8B5CF6', color: label.color || '#8B5CF6' }}>
+                        {translateLabel(label.name, t)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <StatusBadge status={note.status} t={t} />
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,opacity:0.3}}>
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </article>
           ))}
         </div>
       )}

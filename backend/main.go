@@ -115,6 +115,7 @@ func main() {
 		v1.GET("/user/settings", handlers.GetSettings)
 		v1.PATCH("/user/settings", handlers.UpdateSettings)
 		v1.DELETE("/user/account", handlers.DeleteAccount)
+		v1.POST("/user/fcm-token", handlers.RegisterFCMToken)
 
 		// Chat
 		v1.POST("/chat", handlers.ChatMessage)
@@ -143,7 +144,7 @@ func main() {
 		Addr:         ":" + cfg.APIPort,
 		Handler:      r,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 120 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 

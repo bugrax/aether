@@ -149,7 +149,7 @@ export default function EditorPage() {
     setDeleting(true);
     try {
       await notesAPI.delete(note.id);
-      navigate('/vault');
+      navigate('/vault/list');
     } catch (err) {
       console.error('Delete failed:', err);
       setDeleting(false);
@@ -232,7 +232,7 @@ export default function EditorPage() {
     return (
       <div className="main-content">
         <div className="editor-container fade-in">
-          <button className="editor-back" onClick={() => navigate('/vault')}>
+          <button className="editor-back" onClick={() => navigate('/vault/list')}>
             {t('back_to_vault')}
           </button>
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, padding: 'var(--space-8)' }}>
@@ -246,7 +246,7 @@ export default function EditorPage() {
   return (
     <div className="main-content">
       <div className="editor-container fade-in">
-        <button className="editor-back" onClick={() => navigate('/vault')}>
+        <button className="editor-back" onClick={() => navigate('/vault/list')}>
           {t('back_to_vault')}
         </button>
 

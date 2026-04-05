@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { trackSignIn, trackScreenView } from '../analytics';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -8,11 +9,14 @@ export default function LoginPage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => { trackScreenView('Login'); }, []);
+
   async function handleLogin(provider = 'google') {
     setError(null);
     setLoading(true);
     try {
       await login(provider);
+      trackSignIn(provider);
     } catch (err) {
       console.error('Login failed:', err);
       setError(err.code ? `${err.code}: ${err.message}` : err.message);

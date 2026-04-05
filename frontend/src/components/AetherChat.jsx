@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { chatAPI } from '../api';
+import { trackChatMessage, trackChatChipClick, trackAetherChatHistory, trackNoteOpen } from '../analytics';
 
 function renderMarkdown(text) {
   if (!text) return '';
@@ -30,6 +31,14 @@ function groupByDate(sessions, lang) {
   return groups;
 }
 
+function generateId() {
+  try { return generateId(); } catch {}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
 export default function AetherChat({ user, onClose, panelRef, expanded, setExpanded }) {
   const navigate = useNavigate();
   const { t, lang, aiLang } = useLanguage();
@@ -42,7 +51,7 @@ export default function AetherChat({ user, onClose, panelRef, expanded, setExpan
   const [sessions, setSessions] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
-  const sessionIdRef = useRef(crypto.randomUUID());
+  const sessionIdRef = useRef(generateId());
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -59,6 +68,7 @@ export default function AetherChat({ user, onClose, panelRef, expanded, setExpan
   const openHistory = async () => {
     setShowHistory(true);
     setLoadingHistory(true);
+    trackAetherChatHistory();
     // Expand panel to show full history
     setExpanded(true);
     const panel = panelRef.current;
@@ -98,14 +108,20 @@ export default function AetherChat({ user, onClose, panelRef, expanded, setExpan
   };
 
   const startNewChat = () => {
-    sessionIdRef.current = crypto.randomUUID();
+    sessionIdRef.current = generateId();
     setMessages([]);
     setShowChips(true);
     setShowHistory(false);
   };
 
   const sendMessage = async (text) => {
-    if (!text.trim() || isStreaming) return;
+    console.log('[AetherChat] sendMessage called:', text?.substring(0, 50), 'isStreaming:', isStreaming);
+    if (!text.trim() || isStreaming) {
+      console.log('[AetherChat] BLOCKED — empty or streaming');
+      return;
+    }
+    console.log('[AetherChat] Proceeding with send. sessionId:', sessionIdRef.current, 'lang:', chatLang);
+    trackChatMessage(sessionIdRef.current);
     const userMsg = { id: Date.now(), role: 'user', content: text.trim(), feedback: 0 };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
@@ -115,26 +131,42 @@ export default function AetherChat({ user, onClose, panelRef, expanded, setExpan
 
     let fullText = '';
     let assistantId = null;
+    let hasError = false;
 
-    await chatAPI.send(
-      text.trim(),
-      sessionIdRef.current,
-      chatLang,
-      (token) => { fullText += token; setStreamText(fullText); },
-      (id) => { assistantId = id; },
-      (error) => { console.error('Chat error:', error); fullText = t('chat_error'); }
-    );
+    try {
+      await chatAPI.send(
+        text.trim(),
+        sessionIdRef.current,
+        chatLang,
+        (token) => { fullText += token; setStreamText(fullText); },
+        (id) => { assistantId = id; },
+        (error) => { console.error('Chat error:', error); hasError = true; fullText = fullText || t('chat_error'); }
+      );
+    } catch (e) {
+      console.error('Chat send exception:', e);
+      hasError = true;
+      fullText = t('chat_error');
+    }
 
     setIsStreaming(false);
     setStreamText('');
-    setMessages(prev => [
-      ...prev,
-      { id: assistantId || Date.now() + 1, role: 'assistant', content: fullText, feedback: 0 }
-    ]);
+
+    // Only add assistant message if we got content
+    if (fullText.trim()) {
+      setMessages(prev => [
+        ...prev,
+        { id: assistantId || Date.now() + 1, role: 'assistant', content: fullText, feedback: 0 }
+      ]);
+    } else if (hasError) {
+      setMessages(prev => [
+        ...prev,
+        { id: Date.now() + 1, role: 'assistant', content: t('chat_error'), feedback: 0 }
+      ]);
+    }
   };
 
-  const handleSubmit = (e) => { e.preventDefault(); sendMessage(input); };
-  const handleChip = (text) => { sendMessage(text); };
+  const handleSubmit = (e) => { e.preventDefault(); console.log('[AetherChat] Submit, input:', input); sendMessage(input); };
+  const handleChip = (text) => { console.log('[AetherChat] Chip:', text); trackChatChipClick(text); sendMessage(text); };
 
   const handleFeedback = async (msgId, value) => {
     setMessages(prev => prev.map(m =>
@@ -228,7 +260,7 @@ export default function AetherChat({ user, onClose, panelRef, expanded, setExpan
         if (link) {
           e.preventDefault();
           const noteId = link.dataset.noteId;
-          if (noteId) { onClose(); navigate(`/vault/${noteId}`); }
+          if (noteId) { trackNoteOpen(noteId, 'chat'); onClose(); navigate(`/vault/${noteId}`); }
         }
       }}>
         {messages.length === 0 && !isStreaming && (

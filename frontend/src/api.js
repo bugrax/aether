@@ -90,61 +90,114 @@ export const usersAPI = {
   getSettings: () => request('GET', '/user/settings'),
   updateSettings: (data) => request('PATCH', '/user/settings', data),
   deleteAccount: () => request('DELETE', '/user/account'),
+  registerFCMToken: (token) => request('POST', '/user/fcm-token', { token }),
 };
 
 // ── Chat ─────────────────────────────────────────────
 export const chatAPI = {
   send: async (message, sessionId, language, onToken, onDone, onError) => {
     try {
+      // Debug logs removed for production
+
       const headers = { 'Content-Type': 'application/json' };
       if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
+      const controller = new AbortController();
+      const timeout = setTimeout(() => {
+        console.log('[Chat] TIMEOUT after 90s');
+        controller.abort();
+      }, 90000);
+
+      console.log('[Chat] Fetching:', `${API_BASE}/chat`);
       const resp = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ message, session_id: sessionId, language }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeout);
+      console.log('[Chat] Response status:', resp.status, resp.statusText);
+      console.log('[Chat] Response headers:', resp.headers.get('content-type'));
+
       if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(err.error || 'Chat request failed');
+        const errBody = await resp.text().catch(() => 'no body');
+        console.log('[Chat] Error body:', errBody);
+        throw new Error(`Chat failed: ${resp.status} ${errBody.substring(0, 200)}`);
+      }
+
+      if (!resp.body) {
+        console.log('[Chat] No response body (ReadableStream not available)');
+        throw new Error('Streaming not supported');
       }
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let gotDone = false;
+      let tokenCount = 0;
+
+      console.log('[Chat] Starting stream read...');
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log('[Chat] Stream ended. Tokens received:', tokenCount);
+          break;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
 
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            const event = line.slice(7);
-            // Next line should be data
-            continue;
+        if (tokenCount === 0) {
+          console.log('[Chat] First chunk received:', chunk.substring(0, 100));
+        }
+
+        // Process complete SSE messages (separated by double newline)
+        while (buffer.includes('\n\n')) {
+          const idx = buffer.indexOf('\n\n');
+          const block = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+
+          let data = '';
+          for (const line of block.split('\n')) {
+            if (line.startsWith('data: ')) {
+              data = line.slice(6);
+            }
           }
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.text !== undefined) {
-                onToken(parsed.text);
-              } else if (parsed.id) {
-                onDone(parsed.id);
-              } else if (parsed.error) {
-                onError(parsed.error);
-              }
-            } catch {}
+
+          if (!data) continue;
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.text !== undefined) {
+              tokenCount++;
+              onToken(parsed.text);
+            } else if (parsed.id) {
+              console.log('[Chat] Done event, id:', parsed.id);
+              gotDone = true;
+              onDone(parsed.id);
+            } else if (parsed.error) {
+              console.log('[Chat] Error event:', parsed.error);
+              onError(parsed.error);
+              return;
+            }
+          } catch (e) {
+            console.log('[Chat] JSON parse error:', e.message, 'data:', data.substring(0, 100));
           }
         }
       }
+
+      if (!gotDone) {
+        console.log('[Chat] Stream ended without done event. Buffer remaining:', buffer.substring(0, 200));
+        onDone(null);
+      }
+
     } catch (err) {
-      onError(err.message);
+      if (err.name === 'AbortError') {
+        onError('Request timed out. Please try again.');
+      } else {
+        onError(err.message);
+      }
     }
   },
   feedback: (messageId, value) => request('POST', `/chat/${messageId}/feedback`, { feedback: value }),

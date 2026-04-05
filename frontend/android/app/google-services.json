@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "117818548162-6n0paesbn5cac0qdldfk3qtjmca4q6ru.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bugra.aether",
+            "certificate_hash": "9cc11b67e2eed6eebcac8559d723a3f4af44472f"
+          }
+        },
+        {
           "client_id": "117818548162-e3eohdbd9ov4u10p9gjgr75vli4kaf4g.apps.googleusercontent.com",
           "client_type": 3
         }

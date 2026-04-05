@@ -4,6 +4,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { notesAPI } from '../api';
 import AetherChat from './AetherChat';
+import { trackSignOut, trackAetherChatOpen, trackNotificationClick, trackLabelFilter } from '../analytics';
+import { Capacitor } from '@capacitor/core';
+
+function translateLabel(name, t) {
+  const key = 'label_' + name.toLowerCase();
+  const translated = t(key);
+  return translated !== key ? translated : name;
+}
 
 // ── SVG Icon Components ─────────────────────────────
 function VaultIcon() {
@@ -73,7 +81,7 @@ function BellIcon() {
 
 export default function Sidebar({ labels = [], onLabelsChanged }) {
   const { user, logout, isDevMode } = useAuth();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const activeLabelId = searchParams.get('label_id');
@@ -83,6 +91,10 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatExpanded, setChatExpanded] = useState(false);
   const chatExpandedRef = useRef(false);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const prevNotesRef = useRef({});
   const chatInputRef = useRef(null);
   const chatPanelRef = useRef(null);
   const drag = useRef({ active: false, startY: 0, translateY: 0, velocity: 0, lastY: 0, lastTime: 0 });
@@ -115,6 +127,7 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
     setChatOpen(true);
     setChatExpanded(false);
     chatExpandedRef.current = false;
+    trackAetherChatOpen();
   };
 
   const handleChatClose = () => {
@@ -217,12 +230,101 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
     }
   };
 
+  // Request notification permission on mount
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    import('@capacitor/local-notifications').then(({ LocalNotifications }) => {
+      LocalNotifications.requestPermissions();
+    }).catch(() => {});
+  }, []);
+
+  // Send native local notification
+  const sendNativeNotification = async (title, body) => {
+    if (!Capacitor.isNativePlatform()) return;
+    try {
+      const { LocalNotifications } = await import('@capacitor/local-notifications');
+      const perm = await LocalNotifications.requestPermissions();
+      if (perm.display !== 'granted') return;
+      await LocalNotifications.schedule({
+        notifications: [{
+          title,
+          body,
+          id: Math.floor(Math.random() * 100000),
+          schedule: { at: new Date(Date.now() + 500) },
+          sound: 'default',
+        }],
+      });
+    } catch {}
+  };
+
+  // Poll for note status changes → generate notifications
+  useEffect(() => {
+    if (!user) return;
+    const checkNotifications = async () => {
+      try {
+        const data = await notesAPI.list({ limit: 20, offset: 0 });
+        const notes = data.notes || [];
+        const prev = prevNotesRef.current;
+
+        for (const note of notes) {
+          const prevStatus = prev[note.id];
+          if (prevStatus === 'processing' && note.status === 'ready') {
+            setNotifications(n => {
+              if (n.some(x => x.noteId === note.id)) return n;
+              return [{
+                id: Date.now() + Math.random(),
+                noteId: note.id,
+                title: note.title || 'Note',
+                message: t('done'),
+                time: new Date(),
+                read: false,
+              }, ...n].slice(0, 20);
+            });
+            sendNativeNotification('Aether', `${note.title || 'Note'} — ${t('done')}`);
+          } else if (prevStatus === 'processing' && note.status === 'error') {
+            setNotifications(n => {
+              if (n.some(x => x.noteId === note.id)) return n;
+              return [{
+                id: Date.now() + Math.random(),
+                noteId: note.id,
+                title: note.title || 'Note',
+                message: t('processing_failed'),
+                time: new Date(),
+                read: false,
+                isError: true,
+              }, ...n].slice(0, 20);
+            });
+            sendNativeNotification('Aether', `${note.title || 'Note'} — ${t('processing_failed')}`);
+          }
+          prev[note.id] = note.status;
+        }
+        prevNotesRef.current = prev;
+      } catch {}
+    };
+    checkNotifications();
+    const interval = setInterval(checkNotifications, 10000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const markAllRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
+
+  const handleNotificationClick = (notif) => {
+    setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
+    setShowNotifications(false);
+    trackNotificationClick(notif.noteId);
+    navigate(`/vault/${notif.noteId}`);
+  };
+
   // Fetch note counts per label (only when user is authenticated)
   useEffect(() => {
     if (!user) return;
     async function fetchCounts() {
       try {
-        const data = await notesAPI.list();
+        const data = await notesAPI.list({ limit: 100, offset: 0 });
         const notes = data.notes || [];
         setTotalCount(notes.length);
 
@@ -241,6 +343,7 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
   }, [user, labels]);
 
   const handleLogout = async () => {
+    trackSignOut();
     await logout();
     navigate('/');
   };
@@ -312,13 +415,13 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
             <button
               key={label.id}
               className={`sidebar-link sidebar-label-btn ${activeLabelId === label.id ? 'active' : ''}`}
-              onClick={() => navigate(`/vault?label_id=${label.id}`)}
+              onClick={() => { trackLabelFilter(label.name); navigate(`/vault/list?label_id=${label.id}`); }}
             >
               <span
                 className="label-dot"
                 style={{ backgroundColor: label.color || '#8B5CF6' }}
               />
-              {label.name}
+              {translateLabel(label.name, t)}
               <span className="label-count">{labelCounts[label.id] || 0}</span>
             </button>
           ))}
@@ -349,7 +452,7 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
 
       {/* ── Mobile Top Header ───────────────────────── */}
       <header className="mobile-top-header">
-        <div className="mobile-header-avatar">
+        <button className="mobile-header-avatar" onClick={() => setShowProfile(!showProfile)}>
           {avatarUrl ? (
             <img src={avatarUrl} alt="" className="mobile-avatar-img" referrerPolicy="no-referrer" />
           ) : (
@@ -357,33 +460,104 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
               {(user?.displayName || user?.email || '?')[0].toUpperCase()}
             </div>
           )}
-        </div>
-        <div className="mobile-header-date-pill">
-          {t('today')}
-        </div>
-        <button className="mobile-header-bell">
-          <BellIcon />
         </button>
+        <div className="mobile-header-logo">Aether</div>
+        <div className="mobile-header-right">
+          <button className="mobile-header-icon-btn" onClick={() => navigate('/share')}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+          <button className="mobile-header-icon-btn" onClick={() => { setShowNotifications(!showNotifications); if (!showNotifications) markAllRead(); }} style={{ position: 'relative' }}>
+            <BellIcon />
+            {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
+          </button>
+        </div>
       </header>
+
+      {/* ── Profile Menu ─────────────────────────── */}
+      {showProfile && (
+        <>
+          <div className="profile-backdrop" onClick={() => setShowProfile(false)} />
+          <div className="profile-menu">
+            <div className="profile-menu-user">
+              {avatarUrl && <img src={avatarUrl} className="profile-menu-avatar" referrerPolicy="no-referrer" />}
+              <div className="profile-menu-info">
+                <span className="profile-menu-name">{user?.displayName || user?.email}</span>
+                <span className="profile-menu-email">{user?.email}</span>
+              </div>
+            </div>
+            <button className="profile-menu-logout" onClick={handleLogout}>
+              <LogoutIcon />
+              <span>{t('sign_out')}</span>
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── Notification Panel (full page overlay) ── */}
+      {showNotifications && (
+        <div className="notif-page">
+          <div className="notif-page-header">
+            <button className="notif-back-btn" onClick={() => setShowNotifications(false)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <span className="notif-page-title">{lang === 'tr' ? 'Bildirimler' : 'Notifications'}</span>
+            {notifications.length > 0 && (
+              <button className="notif-clear-btn" onClick={() => setNotifications([])}>
+                {lang === 'tr' ? 'Temizle' : 'Clear'}
+              </button>
+            )}
+            {notifications.length === 0 && <span style={{width: 50}} />}
+          </div>
+          <div className="notif-page-list">
+            {notifications.length === 0 ? (
+              <div className="notif-page-empty">
+                <BellIcon />
+                <p>{lang === 'tr' ? 'Henüz bildirim yok' : 'No notifications yet'}</p>
+              </div>
+            ) : notifications.map(n => (
+              <button key={n.id} className={`notif-item ${n.read ? '' : 'unread'} ${n.isError ? 'error' : ''}`}
+                onClick={() => handleNotificationClick(n)}>
+                <span className="notif-icon">{n.isError ? '✕' : '✓'}</span>
+                <div className="notif-content">
+                  <span className="notif-item-title">{n.title}</span>
+                  <span className="notif-item-msg">{n.message}</span>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,opacity:0.3}}>
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Mobile Bottom Tab Bar ───────────────────── */}
       <nav className="mobile-tab-bar">
         <div className="mobile-tab-bar-inner">
           <NavLink
             to="/vault"
-            className={({ isActive }) => `mobile-tab ${isActive && !activeLabelId ? 'active' : ''}`}
+            className={({ isActive }) => `mobile-tab ${isActive ? 'active' : ''}`}
             end
           >
-            <span className="mobile-tab-icon"><VaultIcon /></span>
-            <span className="mobile-tab-label">{t('vault')}</span>
+            <span className="mobile-tab-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                <polyline points="9 22 9 12 15 12 15 22" />
+              </svg>
+            </span>
+            <span className="mobile-tab-label">{lang === 'tr' ? 'Ana Sayfa' : 'Home'}</span>
           </NavLink>
 
           <NavLink
-            to="/share"
-            className={({ isActive }) => `mobile-tab ${isActive ? 'active' : ''}`}
+            to="/vault/list"
+            className={({ isActive }) => `mobile-tab ${isActive && !activeLabelId ? 'active' : ''}`}
           >
-            <span className="mobile-tab-icon"><LinkIcon /></span>
-            <span className="mobile-tab-label">{t('links')}</span>
+            <span className="mobile-tab-icon"><VaultIcon /></span>
+            <span className="mobile-tab-label">{t('vault')}</span>
           </NavLink>
 
           <NavLink
@@ -456,10 +630,10 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
                 <button
                   key={label.id}
                   className={`mobile-menu-item ${activeLabelId === label.id ? 'active' : ''}`}
-                  onClick={() => { navigate(`/vault?label_id=${label.id}`); closeMobileMenu(); }}
+                  onClick={() => { trackLabelFilter(label.name); navigate(`/vault/list?label_id=${label.id}`); closeMobileMenu(); }}
                 >
                   <span className="label-dot" style={{ backgroundColor: label.color || '#8B5CF6' }} />
-                  {label.name}
+                  {translateLabel(label.name, t)}
                   <span className="label-count">{labelCounts[label.id] || 0}</span>
                 </button>
               ))}

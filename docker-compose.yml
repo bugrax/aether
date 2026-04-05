@@ -85,8 +85,11 @@ services:
       CLAUDE_CLI_PATH: "ssh -o StrictHostKeyChecking=no -i /root/.ssh/id_rsa root@172.17.0.1 /usr/bin/claude"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       APIFY_TOKEN: ${APIFY_TOKEN:-}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-aether-8717a}
+      GOOGLE_APPLICATION_CREDENTIALS: /app/firebase-service-account.json
     volumes:
       - /root/.ssh:/root/.ssh:ro
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     depends_on:
       redis:
         condition: service_healthy

@@ -16,6 +16,7 @@ const firebaseConfig = {
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
   appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-FV4ZWFYN9C',
 };
 
 const app = initializeApp(firebaseConfig);
@@ -26,7 +27,7 @@ appleProvider.addScope('email');
 appleProvider.addScope('name');
 const isNative = Capacitor.isNativePlatform();
 
-export { auth, onAuthStateChanged, isNative };
+export { app, auth, onAuthStateChanged, isNative };
 
 function buildNativeUser(result, tokenResult) {
   return {

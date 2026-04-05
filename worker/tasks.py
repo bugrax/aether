@@ -61,6 +61,34 @@ def update_note_status(note_id: str, status: str, **kwargs):
 
 def extract_content_from_url(url: str) -> dict:
     """Extract title and text content from a URL."""
+    from urllib.parse import urlparse
+
+    # Basic URL validation
+    try:
+        parsed = urlparse(url)
+        if not parsed.scheme or not parsed.netloc or parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Invalid URL: {url}")
+    except Exception:
+        raise ValueError(f"Invalid URL format: {url}")
+
+    # Quick reachability check (HEAD request, 10s timeout)
+    try:
+        head = requests.head(url, timeout=10, allow_redirects=True,
+                            headers={"User-Agent": "Mozilla/5.0"},
+                            verify=certifi.where())
+        content_type = head.headers.get("content-type", "").lower()
+
+        # PDF support
+        if "application/pdf" in content_type or url.lower().endswith(".pdf"):
+            return _extract_pdf(url)
+
+    except requests.exceptions.ConnectionError:
+        raise ValueError(f"URL unreachable: {url}")
+    except requests.exceptions.Timeout:
+        raise ValueError(f"URL timed out: {url}")
+    except Exception:
+        pass  # Continue anyway, some sites block HEAD requests
+
     try:
         # Try yt-dlp for YouTube/video URLs
         if any(domain in url for domain in ["youtube.com", "youtu.be", "vimeo.com"]):
@@ -200,6 +228,7 @@ def _extract_instagram(url: str) -> dict:
     content = ""
     thumbnail = ""
     image_urls = []
+    video_url = ""
 
     # Step 1: Apify Instagram Scraper — get full post data + carousel images
     if APIFY_TOKEN:
@@ -233,7 +262,9 @@ def _extract_instagram(url: str) -> dict:
                     for img in post.get("images", []):
                         if img and img not in image_urls:
                             image_urls.append(img)
-                    logger.info(f"📸 Apify returned {len(image_urls)} images, caption={len(content)} chars")
+                    # Video URL for reels
+                    video_url = post.get("videoUrl") or post.get("video_url") or ""
+                    logger.info(f"📸 Apify returned {len(image_urls)} images, video={'yes' if video_url else 'no'}, caption={len(content)} chars")
         except Exception as e:
             logger.warning(f"Apify Instagram scraper failed: {e}")
 
@@ -296,6 +327,22 @@ def _extract_instagram(url: str) -> dict:
             pass
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # Step 3: If it's a reel/video, transcribe the audio
+    # Try Apify videoUrl first, then fall back to yt-dlp download
+    if not video_url:
+        # Try yt-dlp for any Instagram video (reel or video post)
+        video_url = _download_instagram_video_ytdlp(url)
+
+    if video_url:
+        if video_url.startswith("/tmp/"):
+            # Local file from yt-dlp
+            audio_transcript = _transcribe_local_video(video_url)
+        else:
+            # Remote URL from Apify
+            audio_transcript = _transcribe_instagram_video(video_url)
+        if audio_transcript:
+            content = content + "\n\n--- Audio/Video Transcript ---\n" + audio_transcript if content else audio_transcript
 
     if not content:
         content = f"Instagram post: {url}"
@@ -465,6 +512,173 @@ def _extract_twitter(url: str) -> dict:
     return {"title": title, "content": content, "thumbnail": thumbnail}
 
 
+def _download_instagram_video_ytdlp(url: str) -> str:
+    """Try to download Instagram reel video using yt-dlp. Returns local file path or empty string."""
+    import yt_dlp
+    import uuid
+
+    tmp_path = f"/tmp/aether_ig_reel_{uuid.uuid4().hex}.mp4"
+    logger.info(f"🎬 Trying yt-dlp to download Instagram reel...")
+
+    try:
+        ydl_opts = {
+            "format": "best[ext=mp4]/best",
+            "outtmpl": tmp_path,
+            "quiet": True,
+            "no_warnings": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+
+        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 1000:
+            logger.info(f"🎬 yt-dlp downloaded Instagram reel: {os.path.getsize(tmp_path) / 1024 / 1024:.1f}MB")
+            return tmp_path
+    except Exception as e:
+        logger.warning(f"⚠️ yt-dlp Instagram download failed: {e}")
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    return ""
+
+
+def _transcribe_local_video(file_path: str) -> str:
+    """Transcribe a local video/audio file with Gemini."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return ""
+
+    import time
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
+
+    try:
+        logger.info(f"📤 Uploading local video to Gemini: {file_path}")
+        video_file = genai.upload_file(path=file_path, mime_type="video/mp4")
+
+        while video_file.state.name == "PROCESSING":
+            time.sleep(2)
+            video_file = genai.get_file(video_file.name)
+
+        if video_file.state.name == "FAILED":
+            raise ValueError("Gemini failed to process the video.")
+
+        logger.info("🤖 Requesting Gemini transcription for video...")
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+        ]
+
+        response = model.generate_content([
+            video_file,
+            "You are analyzing this video. Please:\n"
+            "1. Transcribe ALL spoken words accurately in their native language.\n"
+            "2. Describe what is happening visually in the video.\n"
+            "3. Note any on-screen text, captions, or graphics.\n"
+            "Provide a complete, detailed analysis."
+        ], safety_settings=safety_settings)
+
+        genai.delete_file(video_file.name)
+
+        if not response.candidates:
+            return ""
+
+        logger.info(f"🎬 Video transcribed: {len(response.text)} chars")
+        return response.text
+
+    except Exception as e:
+        logger.warning(f"⚠️ Local video transcription failed: {e}")
+        return ""
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+
+def _transcribe_instagram_video(video_url: str) -> str:
+    """Download Instagram reel/video audio and transcribe with Gemini."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return ""
+
+    import uuid
+    import time
+
+    logger.info(f"🎬 Downloading Instagram video for transcription...")
+    tmp_path = f"/tmp/aether_ig_video_{uuid.uuid4().hex}.mp4"
+
+    try:
+        # Download video
+        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+        resp = requests.get(video_url, headers=headers, timeout=60, verify=certifi.where(), stream=True)
+        if resp.status_code != 200:
+            logger.warning(f"Failed to download Instagram video: {resp.status_code}")
+            return ""
+
+        with open(tmp_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        file_size = os.path.getsize(tmp_path)
+        if file_size < 1000:
+            logger.warning("Instagram video too small, skipping transcription")
+            return ""
+
+        logger.info(f"🎬 Instagram video downloaded: {file_size / 1024 / 1024:.1f}MB")
+
+        # Upload to Gemini and transcribe (same as YouTube)
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+
+        logger.info("📤 Uploading Instagram video to Gemini...")
+        video_file = genai.upload_file(path=tmp_path, mime_type="video/mp4")
+
+        while video_file.state.name == "PROCESSING":
+            time.sleep(2)
+            video_file = genai.get_file(video_file.name)
+
+        if video_file.state.name == "FAILED":
+            raise ValueError("Gemini failed to process the video file.")
+
+        logger.info("🤖 Requesting Gemini transcription for Instagram video...")
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+        ]
+
+        response = model.generate_content([
+            video_file,
+            "You are analyzing this video. Please:\n"
+            "1. Transcribe ALL spoken words accurately in their native language.\n"
+            "2. Describe what is happening visually in the video.\n"
+            "3. Note any on-screen text, captions, or graphics.\n"
+            "Provide a complete, detailed analysis."
+        ], safety_settings=safety_settings)
+
+        genai.delete_file(video_file.name)
+
+        if not response.candidates:
+            block_reason = getattr(response.prompt_feedback, 'block_reason', 'UNKNOWN')
+            logger.warning(f"⚠️ Gemini video analysis blocked: {block_reason}")
+            return ""
+
+        logger.info(f"🎬 Instagram video transcribed: {len(response.text)} chars")
+        return response.text
+
+    except Exception as e:
+        logger.warning(f"⚠️ Instagram video transcription failed: {e}")
+        return ""
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 def _extract_twitter_og(url: str) -> dict:
     """Fallback: extract Twitter/X content via OG meta tags and nitter/fxtwitter."""
     logger.info(f"🐦 Falling back to OG/fxtwitter for {url}")
@@ -545,13 +759,138 @@ def _extract_article(url: str) -> dict:
 
     # Try to find main article content
     article = soup.find("article") or soup.find("main") or soup.find("body")
-    content = article.get_text(separator="\n", strip=True)
+    content = article.get_text(separator="\n", strip=True) if article else ""
+
+    # Detect JS-required sites (very little text content)
+    if len(content.strip()) < 100:
+        # Try og:description as fallback
+        og_desc = soup.find("meta", property="og:description") or soup.find("meta", attrs={"name": "description"})
+        if og_desc and og_desc.get("content"):
+            content = og_desc["content"]
+        og_title = soup.find("meta", property="og:title")
+        if og_title and og_title.get("content"):
+            title = og_title["content"]
+
+    if len(content.strip()) < 30:
+        content = f"This page requires JavaScript to load content. URL: {url}"
+
+    # Fix encoding issues
+    try:
+        content = content.encode('utf-8', errors='replace').decode('utf-8')
+        title = title.encode('utf-8', errors='replace').decode('utf-8')
+    except Exception:
+        pass
+
     return {"title": title, "content": content, "thumbnail": thumbnail}
+
+
+def _extract_pdf(url: str) -> dict:
+    """Extract text content from a PDF URL."""
+    logger.info(f"📄 Extracting PDF content from {url}")
+
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=60, verify=certifi.where(), stream=True)
+        resp.raise_for_status()
+
+        # Check file size (limit to 20MB)
+        content_length = int(resp.headers.get('content-length', 0))
+        if content_length > 20 * 1024 * 1024:
+            raise ValueError("PDF too large (>20MB)")
+
+        import io
+        pdf_bytes = io.BytesIO(resp.content)
+
+        # Try PyPDF2 first
+        try:
+            import PyPDF2
+            reader = PyPDF2.PdfReader(pdf_bytes)
+            pages = []
+            for i, page in enumerate(reader.pages[:50]):  # Max 50 pages
+                text = page.extract_text()
+                if text:
+                    pages.append(text)
+            content = "\n\n".join(pages)
+            title = reader.metadata.title if reader.metadata and reader.metadata.title else ""
+        except ImportError:
+            # Fallback: try pdfplumber
+            try:
+                import pdfplumber
+                pdf = pdfplumber.open(pdf_bytes)
+                pages = []
+                for i, page in enumerate(pdf.pages[:50]):
+                    text = page.extract_text()
+                    if text:
+                        pages.append(text)
+                content = "\n\n".join(pages)
+                title = ""
+                pdf.close()
+            except ImportError:
+                raise ValueError("No PDF library available (install PyPDF2 or pdfplumber)")
+
+        if not title:
+            # Derive title from URL
+            from urllib.parse import urlparse, unquote
+            path = urlparse(url).path
+            title = unquote(path.split("/")[-1].replace(".pdf", "").replace("_", " ").replace("-", " ")).strip()
+            if not title:
+                title = "PDF Document"
+
+        if not content or len(content.strip()) < 30:
+            content = f"PDF could not be parsed. URL: {url}"
+
+        # Extract thumbnail from first page (not implemented, use empty)
+        thumbnail = ""
+
+        logger.info(f"📄 PDF extracted: {title[:50]}, {len(content)} chars")
+        return {"title": title, "content": content, "thumbnail": thumbnail}
+
+    except ValueError as e:
+        raise
+    except Exception as e:
+        logger.error(f"PDF extraction failed: {e}")
+        raise ValueError(f"Failed to extract PDF: {e}")
 
 
 # ── Claude CLI Configuration ──────────────────────────
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "sonnet")
 CLAUDE_CLI = os.getenv("CLAUDE_CLI_PATH", "claude")
+
+
+def generate_title(raw_title: str, ai_summary: str, language: str = "en") -> str:
+    """Generate a clean, descriptive title from the raw title and AI summary."""
+    if not ai_summary or len(ai_summary) < 50:
+        return ""
+
+    lang_name = "Turkish" if language == "tr" else "English"
+    prompt = f"""Generate a short, clear, descriptive title for this content. The title should explain what the content is about in 5-10 words.
+
+Rules:
+- Write in {lang_name}
+- No quotes, no hashtags, no emojis, no special characters
+- No "username:" prefix
+- Just a clear description of the topic
+- Maximum 60 characters
+
+Current title: {raw_title[:100]}
+Content summary: {ai_summary[:300]}
+
+Return ONLY the title, nothing else."""
+
+    result = _call_claude_cli(prompt)
+    if result.startswith("⚠️"):
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if gemini_key:
+            result = _call_gemini_api(prompt, gemini_key)
+
+    # Clean the result
+    title = result.strip().strip('"').strip("'").strip()
+    if title.startswith("⚠️") or len(title) > 80 or len(title) < 3:
+        return ""
+
+    logger.info(f"📝 AI title: '{raw_title[:30]}...' → '{title}'")
+    return title
 
 
 def call_llm(content: str, instruction: str = "Summarize", language: str = "en") -> str:
@@ -840,7 +1179,7 @@ TOPIC_LABEL_COLORS = {
 }
 
 
-def auto_label_topics(note_id: str, title: str, ai_insight: str):
+def auto_label_topics(note_id: str, title: str, ai_insight: str, language: str = "en"):
     """Use LLM to extract topic labels from content and assign them."""
     if not ai_insight or len(ai_insight) < 50:
         return
@@ -856,10 +1195,15 @@ def auto_label_topics(note_id: str, title: str, ai_insight: str):
                 return
             user_id = str(row[0])
 
+        if language == "tr":
+            label_examples = "teknoloji, sinema, ekonomi, sanat, müzik, spor, sağlık, eğitim, bilim, siyaset, tarih, felsefe, yapay zeka, programlama, tasarım, psikoloji, edebiyat, yemek, seyahat, oyun, moda, iş, girişim"
+        else:
+            label_examples = "technology, cinema, economics, art, music, sports, health, education, science, politics, history, philosophy, ai, programming, design, psychology, literature, food, travel, gaming, fashion, business, startup"
+
         # Ask LLM for topic labels (lightweight prompt, short response)
         prompt = f"""Analyze this content and return 2-4 topic labels that best categorize it.
 Return ONLY a JSON array of lowercase label strings, nothing else.
-Use single-word or two-word labels like: technology, cinema, economics, art, music, sports, health, education, science, politics, history, philosophy, ai, programming, design, psychology, literature, food, travel, gaming, fashion, business, startup
+Use single-word or two-word labels like: {label_examples}
 
 Title: {title[:200]}
 Content summary: {ai_insight[:500]}
@@ -923,6 +1267,80 @@ Response (JSON array only):"""
 
     except Exception as e:
         logger.warning(f"⚠️ AI topic labeling failed for {note_id}: {e}")
+
+
+# ── Push Notifications (FCM) ───────────────────────────
+
+def send_push_notification(note_id: str, title: str, status: str):
+    """Send FCM push notification to the note's owner."""
+    try:
+        # Get user's FCM token
+        with engine.begin() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT u.fcm_token, u.language FROM users u
+                    JOIN notes n ON n.user_id = u.id
+                    WHERE n.id = :nid AND u.fcm_token IS NOT NULL AND u.fcm_token != ''
+                """),
+                {"nid": note_id}
+            ).fetchone()
+
+        if not row or not row[0]:
+            return
+
+        fcm_token = row[0]
+        lang = row[1] or "en"
+
+        if status == "ready":
+            body = f"✅ {title}" if lang != "tr" else f"✅ {title} hazır"
+        else:
+            body = "❌ Processing failed" if lang != "tr" else "❌ İşlem başarısız"
+
+        # Use FCM v1 API with service account
+        import google.auth.transport.requests
+        from google.oauth2 import service_account
+
+        sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "/app/firebase-service-account.json")
+        project_id = os.getenv("FIREBASE_PROJECT_ID", "aether-8717a")
+
+        if not os.path.exists(sa_path):
+            logger.warning("Firebase service account not found, skipping push")
+            return
+
+        credentials = service_account.Credentials.from_service_account_file(
+            sa_path, scopes=["https://www.googleapis.com/auth/firebase.messaging"]
+        )
+        credentials.refresh(google.auth.transport.requests.Request())
+
+        resp = requests.post(
+            f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send",
+            headers={
+                "Authorization": f"Bearer {credentials.token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "message": {
+                    "token": fcm_token,
+                    "notification": {
+                        "title": "Aether",
+                        "body": body,
+                    },
+                    "data": {
+                        "note_id": note_id,
+                        "status": status,
+                    },
+                    "apns": {
+                        "payload": {
+                            "aps": {"sound": "default"}
+                        }
+                    },
+                }
+            },
+            timeout=10,
+        )
+        logger.info(f"📲 Push sent: {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"⚠️ Push notification failed: {e}")
 
 
 # ── Comment Extraction ─────────────────────────────────
@@ -1178,7 +1596,7 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
         # Step 3: Generate AI summary
         ai_summary = call_llm(extracted["content"], instruction="Summarize", language=language)
 
-        # Step 4: Extract comments and generate community insights
+        # Step 4: Extract comments
         comments = extract_comments(url)
         if comments:
             update_note_status(note_id, "processing",
@@ -1187,8 +1605,13 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
             if community_section and not community_section.startswith("⚠️"):
                 ai_summary = ai_summary + "\n\n---\n\n" + community_section
 
-        # Step 5: Mark as ready with AI insight
-        update_note_status(note_id, "ready", ai_insight=ai_summary)
+        # Step 5: Generate a clean AI title
+        ai_title = generate_title(extracted["title"], ai_summary, language)
+        if ai_title:
+            update_fields["title"] = ai_title
+
+        # Step 6: Mark as ready with AI insight
+        update_note_status(note_id, "ready", ai_insight=ai_summary, title=update_fields.get("title", extracted["title"]))
 
         # Step 6: Generate embedding for semantic search
         generate_embedding(note_id, extracted["title"], extracted["content"], ai_summary)
@@ -1197,16 +1620,25 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
         auto_label_source(note_id, url)
 
         # Step 8: AI-based topic labels from content
-        auto_label_topics(note_id, extracted["title"], ai_summary)
+        auto_label_topics(note_id, extracted["title"], ai_summary, language)
 
         logger.info(f"✅ Note {note_id} processed successfully")
+        send_push_notification(note_id, update_fields.get("title", extracted["title"]), "ready")
         return {"status": "success", "note_id": note_id}
+
+    except ValueError as exc:
+        # Known errors (invalid URL, unreachable, etc.) — don't retry
+        logger.error(f"❌ Note {note_id} failed (no retry): {exc}")
+        error_msg = str(exc)[:200]
+        update_note_status(note_id, "error", ai_insight=f"⚠️ {error_msg}")
+        send_push_notification(note_id, "Processing failed", "error")
+        return {"status": "error", "note_id": note_id, "error": error_msg}
 
     except Exception as exc:
         logger.error(f"❌ Failed to process note {note_id}: {exc}")
         if self.request.retries >= self.max_retries:
-            update_note_status(note_id, "error")
-        # Keep "processing" during retries so user doesn't see transient errors
+            error_msg = str(exc)[:200]
+            update_note_status(note_id, "error", ai_insight=f"⚠️ {error_msg}")
         raise self.retry(exc=exc)
 
 
@@ -1279,4 +1711,45 @@ def backfill_topic_labels(self):
 
     logger.info(f"🏷️ Topic label backfill complete: {count}/{len(rows)} notes labeled")
     return {"embedded": count, "total": len(rows)}
+
+
+@app.task(bind=True, max_retries=1)
+def backfill_titles(self):
+    """Backfill AI-generated titles for all notes."""
+    import time as _time
+    logger.info("📝 Starting title backfill...")
+
+    query = text("""
+        SELECT n.id, n.title, n.ai_insight,
+               COALESCE(u.ai_language, u.language, 'en') as lang
+        FROM notes n
+        JOIN users u ON n.user_id = u.id
+        WHERE n.deleted_at IS NULL AND length(n.ai_insight) > 50
+    """)
+    with engine.begin() as conn:
+        rows = conn.execute(query).fetchall()
+
+    count = 0
+    for row in rows:
+        try:
+            note_id = str(row[0])
+            old_title = row[1] or ""
+            ai_insight = row[2] or ""
+            lang = row[3] or "en"
+
+            new_title = generate_title(old_title, ai_insight, lang)
+            if new_title:
+                with engine.begin() as conn:
+                    conn.execute(
+                        text("UPDATE notes SET title = :title, updated_at = :now WHERE id = :nid"),
+                        {"title": new_title, "now": datetime.now(timezone.utc), "nid": note_id}
+                    )
+                count += 1
+                logger.info(f"📝 {count}/{len(rows)}: '{old_title[:30]}' → '{new_title}'")
+            _time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Title backfill failed for {row[0]}: {e}")
+
+    logger.info(f"📝 Title backfill complete: {count}/{len(rows)}")
+    return {"updated": count, "total": len(rows)}
 
