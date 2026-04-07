@@ -161,6 +161,8 @@ p {
   padding: var(--space-5);
   gap: var(--space-3);
   transition: transform var(--transition-normal);
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar-logo {
@@ -222,6 +224,9 @@ p {
 .sidebar-labels {
   margin-top: auto;
   padding-top: var(--space-3);
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
 }
 
 .sidebar-labels-title {
