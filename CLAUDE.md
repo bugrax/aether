@@ -29,16 +29,16 @@ A personal knowledge engine. Users save URLs (YouTube, Instagram, articles, etc.
 ```
 aether/
 ├── backend/          # Go API server (Gin framework)
-│   ├── handlers/     # Route handlers (notes.go, users.go)
+│   ├── handlers/     # Route handlers (notes.go, users.go, chat.go, graph.go, entities.go, synthesis.go, activity.go, search.go)
 │   ├── middleware/    # Auth middleware (Firebase token validation)
-│   ├── models/       # GORM models (note.go, user.go)
+│   ├── models/       # GORM models (note.go, user.go, entity.go, note_relation.go, synthesis_page.go, activity_log.go)
 │   ├── database/     # DB connection
 │   └── main.go       # Routes, CORS, server setup
 ├── frontend/         # React SPA + Capacitor iOS
 │   ├── src/
-│   │   ├── pages/    # VaultPage, EditorPage, SharePage, SettingsPage, LoginPage, SharedNotePage
+│   │   ├── pages/    # DashboardPage, VaultPage, EditorPage, SharePage, SettingsPage, LoginPage, GraphPage, EntitiesPage, EntityDetailPage, ChatPage, SynthesisViewPage, OnboardingPage, SharedNotePage
 │   │   ├── contexts/ # AuthContext (Firebase auth), LanguageContext (i18n)
-│   │   ├── components/ # Sidebar, LabelManager, RichTextEditor
+│   │   ├── components/ # Sidebar, AetherChat, LabelManager, SplashScreen
 │   │   ├── i18n/     # en.js, tr.js translation files
 │   │   ├── api.js    # API client with auth token
 │   │   └── firebase.js # Firebase auth (popup for web, native plugin for iOS)
@@ -49,7 +49,8 @@ aether/
 │   ├── capacitor.config.ts
 │   └── vite.config.js
 ├── worker/           # Python Celery worker
-│   └── tasks.py      # URL processing, AI summarization, embedding
+│   ├── tasks.py      # URL processing, AI summarization, entity extraction, embedding
+│   └── celery_app.py # Celery config + Beat schedule (weekly synthesis, relation backfill)
 ├── extension/        # Chrome browser extension
 ├── landing/          # Static landing page (aether.relayhaus.org)
 └── docker-compose.yml
@@ -130,17 +131,26 @@ npm run build && npx cap sync ios
 
 ## Worker — AI Pipeline
 
-### URL Processing Flow
+### URL Processing Flow (12-step pipeline)
 ```
 POST /api/v1/share → Create note (status: processing) → Redis queue → Celery worker
-  1. extract_content_from_url()
-     - YouTube: yt-dlp (subtitles + Gemini audio transcription)
-     - Instagram: Apify scraper (carousel images) + Gemini vision OCR
-     - Articles: BeautifulSoup scraping
-  2. call_llm() → Claude CLI (primary) or Gemini (fallback)
-  3. Embedding → sentence-transformers (384 dims, pgvector)
-  4. Auto-label by source domain
+  1. extract_content_from_url()     — YouTube (yt-dlp), Instagram (Apify), Twitter (Apify), Articles (BeautifulSoup)
+  2. call_llm()                     — Claude CLI (primary) or Gemini 2.5 Flash (fallback)
+  3. extract_comments()             — YouTube/Instagram/Twitter comments
+  4. generate_community_insights()  — AI analysis of community discussion
+  5. generate_title()               — Clean AI-generated title (5-10 words)
+  6. Update note status → ready
+  7. generate_embedding()           — sentence-transformers (384 dims, pgvector)
+  8. auto_label_source()            — Label by source domain
+  9. auto_label_topics()            — AI extracts 2-4 topic labels
+ 10. find_related_notes()           — pgvector cosine similarity → note_relations (threshold 0.3)
+ 11. update_synthesis_pages()       — Create/update topic synthesis pages
+ 12. extract_entities()             — AI extracts people, concepts, tools, books, etc. → entities + note_entities
 ```
+
+### Periodic Tasks (Celery Beat)
+- `backfill_relations` — every 90 seconds, finds missing note relations
+- `generate_weekly_synthesis` — Sunday 3am, creates weekly knowledge digest
 
 ### Instagram Processing
 - Uses **Apify Instagram Scraper** (`APIFY_TOKEN` env var)
@@ -190,6 +200,12 @@ These override docker-compose.yml defaults. When adding new env vars:
 - `thumbnail_url` column: `text` type (not varchar) — stores base64 data URIs
 - `share_token` column: partial unique index `WHERE share_token != ''`
 - `ai_language` column: separate from `language` (UI language)
+- `entities` table: extracted entities (name, type, description, note_count) per user, deduplicated by name+type
+- `note_entities` table: junction between notes and entities with context snippet
+- `note_relations` table: bidirectional note links with similarity score (0-1)
+- `synthesis_pages` table: topic-based knowledge synthesis with contributing notes
+- `activity_logs` table: processing events (note_processed, relation_found, synthesis_created, entities_extracted)
+- Entity types: person, concept, tool, book, film, music, website, location, organization, event
 
 ## Design System — Stitch MCP Integration
 

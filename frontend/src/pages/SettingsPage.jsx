@@ -27,7 +27,7 @@ function LangButton({ active, onClick, children }) {
 
 export default function SettingsPage() {
   const { lang, setLang, aiLang, setAiLang, t } = useLanguage();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const { labels, reloadLabels } = useOutletContext();
   const navigate = useNavigate();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -195,6 +195,33 @@ export default function SettingsPage() {
         {/* Manage Labels */}
         <section className="settings-section">
           <LabelManager labels={labels} onLabelsChanged={reloadLabels} />
+        </section>
+
+        {/* Sign Out */}
+        <section style={{
+          background: 'var(--surface)',
+          padding: 'var(--space-5)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--outline-variant)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <h2 style={{ fontSize: '1.25rem', marginBottom: 'var(--space-1)' }}>{user?.displayName || user?.email}</h2>
+              <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.8125rem', margin: 0 }}>{user?.email}</p>
+            </div>
+            <button
+              onClick={async () => { await logout(); navigate('/login'); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+                padding: 'var(--space-2) var(--space-4)',
+                background: 'none', border: '1px solid var(--outline-variant)',
+                borderRadius: 'var(--radius-md)', color: 'var(--on-surface-variant)',
+                fontSize: '0.8125rem', fontWeight: 500, cursor: 'pointer',
+              }}
+            >
+              {t('sign_out')}
+            </button>
+          </div>
         </section>
 
         {/* Delete Account */}

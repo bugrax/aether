@@ -2,7 +2,7 @@
 
 *Where links become knowledge*
 
-Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extracts, transcribes, summarizes, and organizes the content into a searchable vault with an AI chatbot assistant.
+Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extracts, transcribes, summarizes, and organizes the content into a searchable vault with an AI chatbot assistant, knowledge graph, entity extraction, and synthesis pages.
 
 ## Architecture
 
@@ -25,9 +25,9 @@ Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extrac
 | **Frontend** | React 19, Vite, Capacitor | SPA + native iOS/Android apps |
 | **Backend** | Go, Gin, GORM | REST API, SSE streaming, Firebase Auth |
 | **Worker** | Python, Celery, Redis | AI processing pipeline |
-| **Database** | PostgreSQL + pgvector | Notes, labels, embeddings, chat history |
+| **Database** | PostgreSQL + pgvector | Notes, labels, embeddings, entities, relations |
 | **AI Chat** | Gemini 2.5 Flash | Vault-aware chatbot with SSE streaming |
-| **AI Summary** | Claude CLI + Gemini | Content analysis and summarization |
+| **AI Summary** | Claude CLI + Gemini | Content analysis, summarization, entity extraction |
 | **Auth** | Firebase Auth | Google + Apple Sign-In |
 | **Analytics** | Firebase Analytics | Web + native event tracking |
 | **Push** | Firebase Cloud Messaging | Server-side push notifications |
@@ -42,22 +42,35 @@ Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extrac
 - **Community Insights** — YouTube/Instagram/Twitter comments analyzed by AI
 - **Semantic Search** — pgvector 384-dim embeddings for intelligent search
 
+### Knowledge Engine (LLM Wiki)
+- **Entity Extraction** — AI extracts people, concepts, tools, books, films, locations, etc. from every note
+- **Entity Graph** — Entities become hub nodes connecting notes that mention the same person/concept/tool
+- **Entity Browser** — Browse all entities by type, search, click through to related notes
+- **Knowledge Synthesis Pages** — Auto-generated topic pages aggregating knowledge across notes
+- **Cross-Reference & Note Linking** — pgvector similarity finds related notes, creates bidirectional links
+- **Knowledge Graph** — Interactive force-directed visualization with dual mode (Similarity / Entities)
+- **Weekly Knowledge Synthesis** — Auto-generated weekly digest of saved content (Sunday 3am)
+- **Activity Log** — Tracks note processing, relation discovery, synthesis creation
+- **AI Rules** — Custom user instructions for how AI processes content
+- **Vault Lint / Contradiction Detection** — Identifies conflicting information across notes
+
 ### AI Assistant
 - **Aether AI Chatbot** — Vault-aware chatbot powered by Gemini 2.5 Flash
 - **SSE Streaming** — Real-time token-by-token response streaming
 - **Note Linking** — AI references specific notes with clickable links
 - **Conversation History** — Persistent chat sessions grouped by date
+- **Save to Vault** — Save chat insights as new notes
 
 ### Organization
 - **Smart Topic Labels** — AI auto-generates 2-4 topic labels per note (i18n aware)
 - **AI-Generated Titles** — Clean, descriptive titles from AI analysis
+- **Source Labels** — Auto-labels by domain (YouTube, Instagram, Twitter/X, etc.)
 - **Label Filtering** — Filter vault by label, with translated label names
 
 ### UI/UX
-- **Knowledge Dashboard** — Stats, topic distribution, recent notes
+- **Knowledge Dashboard** — Stats, topic distribution, entities, synthesis pages, recent notes, activity log
 - **Onboarding** — 7-screen flow (Welcome, Language, AI, Assistant, Privacy, Tutorial, Notifications)
 - **Splash Screen** — Code-generated halftone dot pattern animation
-- **Pull-to-Refresh** — Native-feel gesture with animated indicator
 - **Infinite Scroll** — Paginated vault (20 notes per page)
 - **Compact List View** — Alternative list layout with thumbnails and labels
 - **Glassmorphism Tab Bar** — Blur effect bottom navigation
@@ -94,15 +107,15 @@ Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extrac
 ```
 aether/
 ├── backend/          # Go API server
-│   ├── handlers/     # notes, users, chat, search, labels
+│   ├── handlers/     # notes, users, chat, search, labels, graph, entities, synthesis, activity
 │   ├── middleware/    # Firebase auth
-│   ├── models/       # User, Note, ChatMessage, Label
+│   ├── models/       # User, Note, Label, Entity, NoteEntity, NoteRelation, SynthesisPage, ChatMessage, ActivityLog
 │   ├── config/       # Environment config
 │   └── database/     # DB connection & migrations
 ├── frontend/         # React SPA + Capacitor
 │   ├── src/
 │   │   ├── components/   # Sidebar, AetherChat, SplashScreen, LabelManager
-│   │   ├── pages/        # Dashboard, Vault, Editor, Onboarding, Settings, Login
+│   │   ├── pages/        # Dashboard, Vault, Editor, Graph, Entities, EntityDetail, Chat, Synthesis, Onboarding, Settings, Login
 │   │   ├── contexts/     # Auth, Language providers
 │   │   ├── i18n/         # en.js, tr.js translations
 │   │   ├── analytics.js  # Firebase Analytics
@@ -110,28 +123,55 @@ aether/
 │   ├── ios/App/          # Xcode project + AetherShare extension
 │   └── android/          # Android Studio project
 ├── worker/           # Python Celery worker
-│   ├── tasks.py      # URL extraction, AI processing, FCM push
-│   └── celery_app.py # Celery configuration
+│   ├── tasks.py      # URL extraction, AI processing, entity extraction, FCM push
+│   └── celery_app.py # Celery configuration + Beat schedule
 ├── extension/        # Chrome extension (MV3)
 ├── landing/          # Static landing page
 └── docker-compose.yml
+```
+
+## AI Processing Pipeline
+
+```
+POST /api/v1/share → Create note (status: processing) → Redis → Celery worker
+  1. extract_content_from_url()     — YouTube/Instagram/Twitter/article extraction
+  2. call_llm()                     — Claude CLI (primary) or Gemini (fallback)
+  3. extract_comments()             — YouTube/Instagram/Twitter comments
+  4. generate_community_insights()  — AI analysis of community discussion
+  5. generate_title()               — Clean AI-generated title
+  6. update note status → ready
+  7. generate_embedding()           — sentence-transformers → pgvector
+  8. auto_label_source()            — Label by source domain
+  9. auto_label_topics()            — AI extracts 2-4 topic labels
+ 10. find_related_notes()           — pgvector similarity → note_relations
+ 11. update_synthesis_pages()       — Create/update topic synthesis pages
+ 12. extract_entities()             — AI extracts people, concepts, tools, etc.
+ 13. send_push_notification()       — FCM push to user
 ```
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/v1/notes?limit=20&offset=0` | List notes (paginated) |
+| GET | `/api/v1/notes` | List notes (paginated) |
 | POST | `/api/v1/notes` | Create note |
 | GET | `/api/v1/notes/:id` | Get note |
 | PUT | `/api/v1/notes/:id` | Update note |
 | DELETE | `/api/v1/notes/:id` | Delete note |
 | PUT | `/api/v1/notes/:id/labels` | Update note labels |
 | GET | `/api/v1/notes/:id/revisions` | Version history |
+| GET | `/api/v1/notes/:id/related` | Related notes (cross-references) |
 | POST | `/api/v1/notes/:id/share` | Toggle public share |
 | GET | `/api/v1/notes/:id/stream` | SSE status stream |
-| POST | `/api/v1/share` | Capture URL |
-| GET | `/api/v1/search?q=` | Semantic search |
+| POST | `/api/v1/share` | Capture URL (triggers AI pipeline) |
+| GET | `/api/v1/search?q=` | Semantic search (pgvector) |
+| GET | `/api/v1/graph` | Knowledge graph (similarity-based) |
+| GET | `/api/v1/graph/entities` | Knowledge graph (entity-based) |
+| GET | `/api/v1/entities` | List entities (type/search filter) |
+| GET | `/api/v1/entities/:id` | Entity detail with linked notes |
+| GET | `/api/v1/synthesis` | List synthesis pages |
+| GET | `/api/v1/synthesis/:id` | Synthesis page detail |
+| GET | `/api/v1/activity` | Activity log |
 | POST | `/api/v1/chat` | AI chat (SSE streaming) |
 | POST | `/api/v1/chat/:id/feedback` | Chat feedback |
 | GET | `/api/v1/chat/sessions` | Chat history |
@@ -141,10 +181,26 @@ aether/
 | PUT | `/api/v1/labels/:id` | Update label |
 | DELETE | `/api/v1/labels/:id` | Delete label |
 | GET | `/api/v1/user/settings` | Get settings |
-| PATCH | `/api/v1/user/settings` | Update settings |
+| PATCH | `/api/v1/user/settings` | Update settings (language, AI rules) |
 | DELETE | `/api/v1/user/account` | Delete account |
 | POST | `/api/v1/user/fcm-token` | Register push token |
 | GET | `/api/v1/shared/:token` | Public shared note |
+
+## Database Models
+
+| Model | Table | Purpose |
+|-------|-------|---------|
+| User | users | Firebase auth, settings, AI rules |
+| Note | notes | Content, AI insight, embedding, status |
+| NoteRevision | note_revisions | Version history snapshots |
+| Label | labels | Topic/source labels with colors |
+| Entity | entities | Extracted entities (person, concept, tool, etc.) |
+| NoteEntity | note_entities | Note-entity junction with context |
+| NoteRelation | note_relations | Bidirectional note links with similarity score |
+| SynthesisPage | synthesis_pages | Topic synthesis pages |
+| SynthesisNote | synthesis_notes | Synthesis-note junction |
+| ChatMessage | chat_messages | AI chat history |
+| ActivityLog | activity_logs | Processing/relation/synthesis events |
 
 ## Environment Variables
 
@@ -168,7 +224,9 @@ aether/
 ```bash
 # Manual deploy
 rsync -avz backend/ root@minis:/root/aether/backend/
-ssh root@minis "cd /root/aether && docker compose build api && docker compose up -d api"
+rsync -avz worker/ root@minis:/root/aether/worker/
+rsync -avz frontend/ root@minis:/root/aether/frontend/
+ssh root@minis "cd /root/aether && docker compose build api worker frontend && docker compose up -d api worker frontend"
 ```
 
 ## License

@@ -2537,6 +2537,10 @@ p {
     padding: 0;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--on-surface-variant);
   }
 
   .mobile-avatar-img {
