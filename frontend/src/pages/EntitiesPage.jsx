@@ -76,14 +76,19 @@ export default function EntitiesPage() {
       </div>
 
       {/* Search + Filter */}
-      <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-5)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexWrap: 'wrap' }}>
         <input
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder={lang === 'tr' ? 'Ara...' : 'Search entities...'}
-          className="vault-search"
-          style={{ flex: 1, minWidth: 200 }}
+          style={{
+            flex: 1, minWidth: 180,
+            background: 'var(--surface-container)', color: 'var(--on-surface)',
+            border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius-full)',
+            padding: '10px 16px', fontSize: '0.8125rem', outline: 'none',
+            WebkitAppearance: 'none',
+          }}
         />
         <select
           value={filterType}
@@ -91,7 +96,8 @@ export default function EntitiesPage() {
           style={{
             background: 'var(--surface-container)', border: '1px solid var(--outline-variant)',
             borderRadius: 'var(--radius-full)', color: 'var(--on-surface)',
-            padding: '8px 16px', fontSize: '0.8125rem', outline: 'none',
+            padding: '10px 16px', fontSize: '0.8125rem', outline: 'none',
+            WebkitAppearance: 'none',
           }}
         >
           <option value="">{lang === 'tr' ? 'Tum Tipler' : 'All Types'}</option>
@@ -114,30 +120,32 @@ export default function EntitiesPage() {
         </div>
       ) : (
         <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-          {/* Stats bar */}
+          {/* Type chips */}
           <div style={{
-            display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap',
-            padding: 'var(--space-3) var(--space-4)',
-            background: 'var(--surface-container)', borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--outline-variant)',
+            display: 'flex', gap: '8px', flexWrap: 'wrap',
           }}>
-            {types.map(type => (
-              <button
-                key={type}
-                onClick={() => setFilterType(filterType === type ? '' : type)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '4px 12px', borderRadius: 'var(--radius-full)',
-                  background: filterType === type ? TYPE_COLORS[type] + '30' : 'transparent',
-                  border: filterType === type ? `1px solid ${TYPE_COLORS[type]}` : '1px solid transparent',
-                  color: 'var(--on-surface)', fontSize: '0.75rem', cursor: 'pointer',
-                }}
-              >
-                <span>{TYPE_ICONS[type] || ''}</span>
-                <span style={{ textTransform: 'capitalize' }}>{type}</span>
-                <span style={{ color: 'var(--outline)', fontWeight: 600 }}>{grouped[type]?.length || 0}</span>
-              </button>
-            ))}
+            {types.map(type => {
+              const isActive = filterType === type;
+              const color = TYPE_COLORS[type] || '#9093ff';
+              return (
+                <button
+                  key={type}
+                  onClick={() => setFilterType(isActive ? '' : type)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '6px 12px', borderRadius: 'var(--radius-full)',
+                    background: isActive ? color + '25' : 'var(--surface-container)',
+                    border: `1px solid ${isActive ? color : 'var(--outline-variant)'}`,
+                    color: isActive ? color : 'var(--on-surface-variant)',
+                    fontSize: '0.75rem', cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ fontSize: '0.8rem' }}>{TYPE_ICONS[type] || ''}</span>
+                  <span style={{ textTransform: 'capitalize' }}>{type}</span>
+                  <span style={{ fontWeight: 600, opacity: 0.7 }}>{grouped[type]?.length || 0}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Entity grid */}
