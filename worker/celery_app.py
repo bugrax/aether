@@ -32,6 +32,12 @@ app.conf.update(
     task_acks_late=True,           # Re-queue if worker crashes mid-task
     worker_prefetch_multiplier=1,  # One task at a time for LLM workloads
     result_expires=3600,           # Results expire after 1 hour
+    beat_schedule={
+        "backfill-relations-every-8h": {
+            "task": "tasks.backfill_relations",
+            "schedule": 8 * 3600,  # Every 8 hours
+        },
+    },
 )
 
 if __name__ == "__main__":

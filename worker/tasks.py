@@ -1979,3 +1979,93 @@ def backfill_titles(self):
     logger.info(f"📝 Title backfill complete: {count}/{len(rows)}")
     return {"updated": count, "total": len(rows)}
 
+
+@app.task(bind=True, max_retries=1)
+def backfill_relations(self):
+    """Periodic task: find missing note relations across all users. Runs every 8 hours."""
+    logger.info("🔗 Starting relation backfill...")
+
+    # Get all notes with embeddings, grouped by user
+    query = text("""
+        SELECT id, user_id FROM notes
+        WHERE embedding IS NOT NULL AND deleted_at IS NULL
+        ORDER BY user_id, created_at DESC
+    """)
+    with engine.begin() as conn:
+        all_notes = conn.execute(query).fetchall()
+
+    # Group by user
+    from collections import defaultdict
+    user_notes = defaultdict(list)
+    for row in all_notes:
+        user_notes[str(row[1])].append(str(row[0]))
+
+    total_linked = 0
+    total_checked = 0
+
+    for user_id, note_ids in user_notes.items():
+        # For each note, check if it has < 3 relations — if so, try to find more
+        for note_id in note_ids:
+            with engine.begin() as conn:
+                existing_count = conn.execute(
+                    text("SELECT COUNT(*) FROM note_relations WHERE note_id_a = :nid OR note_id_b = :nid"),
+                    {"nid": note_id}
+                ).scalar()
+
+            if existing_count >= 3:
+                continue  # Already has enough relations
+
+            total_checked += 1
+
+            # Find similar notes
+            try:
+                with engine.begin() as conn:
+                    similar = conn.execute(
+                        text("""
+                            SELECT id, 1 - (embedding <=> (SELECT embedding FROM notes WHERE id = :nid)) as similarity
+                            FROM notes
+                            WHERE user_id = :uid AND id != :nid AND embedding IS NOT NULL AND deleted_at IS NULL
+                            ORDER BY embedding <=> (SELECT embedding FROM notes WHERE id = :nid)
+                            LIMIT 5
+                        """),
+                        {"nid": note_id, "uid": user_id}
+                    ).fetchall()
+
+                for sim_row in similar:
+                    sim_id = str(sim_row[0])
+                    similarity = float(sim_row[1]) if sim_row[1] else 0
+
+                    if similarity < 0.3:
+                        continue
+
+                    # Check if relation exists
+                    with engine.begin() as conn:
+                        exists = conn.execute(
+                            text("""SELECT 1 FROM note_relations
+                                    WHERE (note_id_a = :a AND note_id_b = :b) OR (note_id_a = :b AND note_id_b = :a)"""),
+                            {"a": note_id, "b": sim_id}
+                        ).fetchone()
+                        if exists:
+                            continue
+
+                    if similarity > 0.7:
+                        desc = f"Highly related (similarity: {similarity:.0%})"
+                    elif similarity > 0.5:
+                        desc = f"Related (similarity: {similarity:.0%})"
+                    else:
+                        desc = f"Loosely related (similarity: {similarity:.0%})"
+
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text("""INSERT INTO note_relations (id, note_id_a, note_id_b, relation_type, description, score, created_at)
+                                    VALUES (gen_random_uuid(), :a, :b, 'related', :desc, :score, NOW())"""),
+                            {"a": note_id, "b": sim_id, "desc": desc, "score": similarity}
+                        )
+                        total_linked += 1
+
+            except Exception as e:
+                logger.warning(f"Relation backfill failed for {note_id}: {e}")
+
+    logger.info(f"🔗 Relation backfill complete: {total_linked} new relations, {total_checked} notes checked")
+    return {"linked": total_linked, "checked": total_checked}
+
