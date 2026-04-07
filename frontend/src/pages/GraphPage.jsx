@@ -11,6 +11,7 @@ export default function GraphPage() {
   const [loading, setLoading] = useState(true);
   const [hoverNode, setHoverNode] = useState(null);
   const [filterLabel, setFilterLabel] = useState('');
+  const [mode, setMode] = useState('similarity'); // 'similarity' or 'entities'
   const fgRef = useRef();
   const ForceGraph = useRef(null);
   const [graphReady, setGraphReady] = useState(false);
@@ -27,11 +28,12 @@ export default function GraphPage() {
 
   useEffect(() => {
     loadGraph();
-  }, []);
+  }, [mode]);
 
   async function loadGraph() {
+    setLoading(true);
     try {
-      const data = await graphAPI.get();
+      const data = mode === 'entities' ? await graphAPI.entities() : await graphAPI.get();
       setGraphData({
         nodes: data.nodes || [],
         links: data.links || [],
@@ -56,7 +58,13 @@ export default function GraphPage() {
   } : graphData;
 
   const handleNodeClick = useCallback((node) => {
-    navigate(`/vault/${node.id}`);
+    if (node.node_type === 'entity') {
+      // entity:uuid → extract uuid
+      const entityId = node.id.replace('entity:', '');
+      navigate(`/entities/${entityId}`);
+    } else {
+      navigate(`/vault/${node.id}`);
+    }
   }, [navigate]);
 
   if (loading || !graphReady) {
@@ -75,32 +83,60 @@ export default function GraphPage() {
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 20px', background: 'rgba(14,14,14,0.8)', backdropFilter: 'blur(12px)',
+        padding: '8px 16px', background: 'rgba(14,14,14,0.85)', backdropFilter: 'blur(12px)',
+        borderBottom: '1px solid var(--outline-variant)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button onClick={() => navigate('/vault')} style={{
-            background: 'none', border: 'none', color: 'var(--on-surface-variant)', cursor: 'pointer', fontSize: '0.875rem',
-          }}>← {lang === 'tr' ? 'Geri' : 'Back'}</button>
-          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, color: 'var(--on-surface)', fontSize: '1rem' }}>
-            {lang === 'tr' ? 'Bilgi Haritası' : 'Knowledge Graph'}
+            background: 'none', border: 'none', color: 'var(--on-surface-variant)', cursor: 'pointer', fontSize: '0.8rem',
+          }}>←</button>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600, color: 'var(--on-surface)', fontSize: '0.875rem' }}>
+            {lang === 'tr' ? 'Bilgi Haritasi' : 'Graph'}
           </span>
-          <span style={{ fontSize: '0.7rem', color: 'var(--outline)' }}>
-            {filteredData.nodes.length} {lang === 'tr' ? 'not' : 'notes'} · {filteredData.links.length} {lang === 'tr' ? 'bağlantı' : 'links'}
+          <span style={{ fontSize: '0.65rem', color: 'var(--outline)' }}>
+            {filteredData.nodes.length}/{filteredData.links.length}
           </span>
         </div>
-        {/* Label filter */}
-        <select
-          value={filterLabel}
-          onChange={e => setFilterLabel(e.target.value)}
-          style={{
-            background: 'var(--surface-container)', border: '1px solid var(--outline-variant)',
-            borderRadius: 'var(--radius-full)', color: 'var(--on-surface)',
-            padding: '6px 12px', fontSize: '0.75rem', outline: 'none',
-          }}
-        >
-          <option value="">{lang === 'tr' ? 'Tümü' : 'All Topics'}</option>
-          {labels.map(l => <option key={l} value={l}>{l}</option>)}
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/* Mode toggle */}
+          <div style={{
+            display: 'flex', borderRadius: 'var(--radius-full)',
+            border: '1px solid var(--outline-variant)', overflow: 'hidden',
+          }}>
+            <button
+              onClick={() => setMode('similarity')}
+              style={{
+                padding: '4px 10px', fontSize: '0.65rem', border: 'none', cursor: 'pointer',
+                background: mode === 'similarity' ? 'var(--primary)' : 'var(--surface-container)',
+                color: mode === 'similarity' ? '#fff' : 'var(--on-surface-variant)',
+              }}
+            >
+              {lang === 'tr' ? 'Benzerlik' : 'Similarity'}
+            </button>
+            <button
+              onClick={() => setMode('entities')}
+              style={{
+                padding: '4px 10px', fontSize: '0.65rem', border: 'none', cursor: 'pointer',
+                background: mode === 'entities' ? 'var(--primary)' : 'var(--surface-container)',
+                color: mode === 'entities' ? '#fff' : 'var(--on-surface-variant)',
+              }}
+            >
+              {lang === 'tr' ? 'Varliklar' : 'Entities'}
+            </button>
+          </div>
+          <select
+            value={filterLabel}
+            onChange={e => setFilterLabel(e.target.value)}
+            style={{
+              background: 'var(--surface-container)', border: '1px solid var(--outline-variant)',
+              borderRadius: 'var(--radius-full)', color: 'var(--on-surface)',
+              padding: '4px 10px', fontSize: '0.7rem', outline: 'none',
+            }}
+          >
+            <option value="">{lang === 'tr' ? 'Tumu' : 'All'}</option>
+            {labels.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Hover tooltip */}
@@ -113,7 +149,9 @@ export default function GraphPage() {
           pointerEvents: 'none',
         }}>
           <strong>{hoverNode.title}</strong>
-          <div style={{ fontSize: '0.7rem', color: hoverNode.color, marginTop: 2 }}>{hoverNode.label}</div>
+          <div style={{ fontSize: '0.7rem', color: hoverNode.color, marginTop: 2 }}>
+            {hoverNode.node_type === 'entity' ? `Entity: ${hoverNode.label}` : hoverNode.label}
+          </div>
         </div>
       )}
 
@@ -131,29 +169,46 @@ export default function GraphPage() {
           onNodeClick={handleNodeClick}
           onNodeHover={node => setHoverNode(node || null)}
           nodeCanvasObject={(node, ctx, globalScale) => {
-            // Draw circle
             const r = Math.sqrt(node.size || 3) * 2;
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-            ctx.fillStyle = node.color || '#9093ff';
-            ctx.fill();
+            const isEntity = node.node_type === 'entity';
 
-            // Draw glow
+            if (isEntity) {
+              // Diamond shape for entities
+              ctx.beginPath();
+              ctx.moveTo(node.x, node.y - r * 1.3);
+              ctx.lineTo(node.x + r * 1.3, node.y);
+              ctx.lineTo(node.x, node.y + r * 1.3);
+              ctx.lineTo(node.x - r * 1.3, node.y);
+              ctx.closePath();
+              ctx.fillStyle = node.color || '#9093ff';
+              ctx.fill();
+              ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+              ctx.lineWidth = 0.5;
+              ctx.stroke();
+            } else {
+              // Circle for notes
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+              ctx.fillStyle = node.color || '#9093ff';
+              ctx.fill();
+            }
+
+            // Glow
             ctx.shadowColor = node.color || '#9093ff';
-            ctx.shadowBlur = 8;
+            ctx.shadowBlur = isEntity ? 12 : 8;
             ctx.fill();
             ctx.shadowBlur = 0;
 
-            // Draw label if zoomed in enough
+            // Label if zoomed in
             if (globalScale > 1.5) {
-              ctx.font = `${10 / globalScale}px JetBrains Mono, monospace`;
+              ctx.font = `${isEntity ? 'bold ' : ''}${10 / globalScale}px JetBrains Mono, monospace`;
               ctx.fillStyle = 'rgba(255,255,255,0.8)';
               ctx.textAlign = 'center';
               ctx.fillText((node.title || '').substring(0, 25), node.x, node.y + r + 8 / globalScale);
             }
           }}
-          width={typeof window !== 'undefined' ? window.innerWidth - 280 : 800}
-          height={typeof window !== 'undefined' ? window.innerHeight : 600}
+          width={typeof window !== 'undefined' ? (window.innerWidth > 768 ? window.innerWidth - 280 : window.innerWidth) : 800}
+          height={typeof window !== 'undefined' ? (window.innerWidth > 768 ? window.innerHeight : window.innerHeight - 140) : 600}
           cooldownTicks={100}
           d3AlphaDecay={0.02}
           d3VelocityDecay={0.3}

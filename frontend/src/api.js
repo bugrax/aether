@@ -97,6 +97,7 @@ export const usersAPI = {
 // ── Knowledge Graph ──────────────────────────────────
 export const graphAPI = {
   get: () => request('GET', '/graph'),
+  entities: () => request('GET', '/graph/entities'),
 };
 
 // ── Activity Log ─────────────────────────────────────
@@ -108,6 +109,15 @@ export const activityAPI = {
 export const synthesisAPI = {
   list: () => request('GET', '/synthesis'),
   get: (id) => request('GET', `/synthesis/${id}`),
+};
+
+// ── Entities ─────────────────────────────────────────
+export const entitiesAPI = {
+  list: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request('GET', `/entities${query ? '?' + query : ''}`);
+  },
+  get: (id) => request('GET', `/entities/${id}`),
 };
 
 // ── Chat ─────────────────────────────────────────────

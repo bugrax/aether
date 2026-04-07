@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { notesAPI, labelsAPI, synthesisAPI, activityAPI } from '../api';
+import { notesAPI, labelsAPI, synthesisAPI, activityAPI, entitiesAPI } from '../api';
 import { trackNoteOpen, trackLabelFilter, trackScreenView } from '../analytics';
 
 function translateLabel(name, t) {
@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const [recentNotes, setRecentNotes] = useState([]);
   const [synthPages, setSynthPages] = useState([]);
   const [activities, setActivities] = useState([]);
+  const [topEntities, setTopEntities] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,14 +31,16 @@ export default function DashboardPage() {
   async function loadDashboard() {
     setLoading(true);
     try {
-      const [notesData, labelsData, synthData, actData] = await Promise.all([
+      const [notesData, labelsData, synthData, actData, entData] = await Promise.all([
         notesAPI.list({ limit: 100, offset: 0 }),
         labelsAPI.list(),
         synthesisAPI.list().catch(() => ({ pages: [] })),
         activityAPI.list().catch(() => ({ activities: [] })),
+        entitiesAPI.list().catch(() => ({ entities: [] })),
       ]);
       setSynthPages((synthData.pages || []).slice(0, 5));
       setActivities((actData.activities || []).slice(0, 10));
+      setTopEntities((entData.entities || []).slice(0, 8));
 
       const notes = notesData.notes || [];
       const total = notesData.total || notes.length;
@@ -138,6 +141,68 @@ export default function DashboardPage() {
                 </div>
                 <span className="dash-label-count">{l.count}</span>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Knowledge Graph */}
+      <div className="dash-section" onClick={() => navigate('/vault/graph')} style={{ cursor: 'pointer' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: 'var(--space-4)', background: 'var(--surface-container-low)',
+          border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius-lg)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="18" cy="6" r="3"/>
+              <line x1="8.5" y1="7.5" x2="15.5" y2="16.5"/><line x1="15.5" y1="7.5" x2="8.5" y2="16.5"/>
+            </svg>
+            <div>
+              <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--on-surface)' }}>
+                {lang === 'tr' ? 'Bilgi Haritası' : 'Knowledge Graph'}
+              </span>
+              <span style={{ fontSize: '0.7rem', color: 'var(--outline)', display: 'block' }}>
+                {lang === 'tr' ? 'Notlarınız arasındaki bağlantıları keşfedin' : 'Explore connections between your notes'}
+              </span>
+            </div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--outline)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </div>
+      </div>
+
+      {/* Entities */}
+      {topEntities.length > 0 && (
+        <div className="dash-section">
+          <div className="dash-section-header">
+            <h2 className="dash-section-title">{lang === 'tr' ? 'Varliklar' : 'Entities'}</h2>
+            <button className="dash-see-all" onClick={() => navigate('/entities')}>
+              {lang === 'tr' ? 'Tumunu Gor' : 'See All'} →
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+            {topEntities.map(e => (
+              <button
+                key={e.id}
+                onClick={() => navigate(`/entities/${e.id}`)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '6px 12px',
+                  background: 'var(--surface-container)',
+                  border: '1px solid var(--outline-variant)',
+                  borderRadius: 'var(--radius-full)',
+                  color: 'var(--on-surface)', fontSize: '0.75rem',
+                  cursor: 'pointer', transition: 'border-color 0.15s',
+                }}
+                onMouseEnter={ev => ev.currentTarget.style.borderColor = 'var(--primary)'}
+                onMouseLeave={ev => ev.currentTarget.style.borderColor = 'var(--outline-variant)'}
+              >
+                <span>{({'person':'👤','concept':'💡','tool':'🔧','book':'📚','film':'🎬','music':'🎵','website':'🌐','location':'📍','organization':'🏢','event':'📅'})[e.type] || ''}</span>
+                <span>{e.name}</span>
+                <span style={{ color: 'var(--outline)', fontWeight: 600 }}>{e.note_count}</span>
+              </button>
             ))}
           </div>
         </div>

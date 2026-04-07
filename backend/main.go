@@ -145,6 +145,11 @@ func main() {
 		// Semantic Search (pgvector)
 		v1.GET("/search", handlers.SemanticSearch)
 
+		// Entities
+		v1.GET("/entities", handlers.ListEntities)
+		v1.GET("/entities/:id", handlers.GetEntity)
+		v1.GET("/graph/entities", handlers.GetEntityGraph)
+
 		// Labels
 		v1.GET("/labels", handlers.ListLabels)
 		v1.POST("/labels", handlers.CreateLabel)

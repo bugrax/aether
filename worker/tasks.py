@@ -1582,6 +1582,135 @@ Output ONLY the synthesis content. Do not ask questions or add commentary."""
             logger.info(f"📚 Created synthesis '{topic}' (1 note)")
 
 
+# ── Entity Extraction ──────────────────────────────────
+
+ENTITY_TYPE_MAP = {
+    "📚": "book",
+    "🎬": "film",
+    "🎵": "music",
+    "👤": "person",
+    "🌐": "website",
+    "🔧": "tool",
+    "💡": "concept",
+    "📍": "location",
+    "🏢": "organization",
+    "📅": "event",
+}
+
+
+def extract_entities(note_id: str, ai_insight: str, language: str = "en"):
+    """Extract structured entities from AI insight and store them in the database."""
+    if not ai_insight or len(ai_insight) < 100:
+        return
+
+    try:
+        # Get user_id for this note
+        with engine.begin() as conn:
+            row = conn.execute(
+                text("SELECT user_id FROM notes WHERE id = :nid"),
+                {"nid": note_id}
+            ).fetchone()
+            if not row:
+                return
+            user_id = str(row[0])
+
+        lang_name = "Turkish" if language == "tr" else "English"
+
+        prompt = f"""Extract all named entities from this content. Return ONLY a JSON array of objects with "name", "type", and "description" fields.
+
+Entity types: person, concept, tool, book, film, music, website, location, organization, event
+
+Rules:
+- "name" should be the proper name (e.g., "Elon Musk", "PostgreSQL", "The Matrix")
+- "type" must be one of the listed types
+- "description" should be a brief 1-sentence description in {lang_name}
+- Extract 3-15 entities maximum
+- Only extract entities that are clearly mentioned, not vague references
+
+Content:
+{ai_insight[:4000]}
+
+Response (JSON array only):"""
+
+        result = _call_claude_cli(prompt)
+        if result.startswith("⚠️"):
+            gemini_key = os.getenv("GEMINI_API_KEY")
+            if gemini_key:
+                result = _call_gemini_api(prompt, gemini_key)
+
+        if result.startswith("⚠️"):
+            return
+
+        # Parse JSON array from response
+        import re
+        match = re.search(r'\[[\s\S]*\]', result)
+        if not match:
+            return
+
+        entities_raw = json.loads(match.group(0))
+        if not isinstance(entities_raw, list):
+            return
+
+        valid_types = set(ENTITY_TYPE_MAP.values())
+        count = 0
+
+        for ent in entities_raw[:15]:
+            if not isinstance(ent, dict):
+                continue
+            name = str(ent.get("name", "")).strip()
+            etype = str(ent.get("type", "")).strip().lower()
+            desc = str(ent.get("description", "")).strip()[:500]
+
+            if not name or not etype or len(name) < 2 or len(name) > 200:
+                continue
+            if etype not in valid_types:
+                continue
+
+            # Find or create entity (deduplicate by name + type per user)
+            with engine.begin() as conn:
+                existing = conn.execute(
+                    text("""SELECT id FROM entities
+                            WHERE user_id = :uid AND LOWER(name) = LOWER(:name) AND type = :type AND deleted_at IS NULL"""),
+                    {"uid": user_id, "name": name, "type": etype}
+                ).fetchone()
+
+                if existing:
+                    entity_id = str(existing[0])
+                    # Update note count
+                    conn.execute(
+                        text("UPDATE entities SET note_count = note_count + 1, updated_at = NOW() WHERE id = :eid"),
+                        {"eid": entity_id}
+                    )
+                else:
+                    result_row = conn.execute(
+                        text("""INSERT INTO entities (id, user_id, name, type, description, note_count, created_at, updated_at)
+                                VALUES (gen_random_uuid(), :uid, :name, :type, :desc, 1, NOW(), NOW()) RETURNING id"""),
+                        {"uid": user_id, "name": name, "type": etype, "desc": desc}
+                    )
+                    entity_id = str(result_row.fetchone()[0])
+
+            # Link entity to note (avoid duplicates)
+            with engine.begin() as conn:
+                exists = conn.execute(
+                    text("SELECT 1 FROM note_entities WHERE note_id = :nid AND entity_id = :eid"),
+                    {"nid": note_id, "eid": entity_id}
+                ).fetchone()
+                if not exists:
+                    conn.execute(
+                        text("""INSERT INTO note_entities (id, note_id, entity_id, context, created_at)
+                                VALUES (gen_random_uuid(), :nid, :eid, :ctx, NOW())"""),
+                        {"nid": note_id, "eid": entity_id, "ctx": desc[:300]}
+                    )
+                    count += 1
+
+        if count > 0:
+            logger.info(f"🧬 Extracted {count} entities for note {note_id}")
+            log_activity(note_id, "entities_extracted", f"{count} entities found", f"Extracted {count} entities from content")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Entity extraction failed for {note_id}: {e}")
+
+
 # ── Comment Extraction ─────────────────────────────────
 
 def extract_comments(url: str) -> list:
@@ -1867,6 +1996,9 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
         # Step 10: Update or create synthesis pages for this note's topics
         update_synthesis_pages(note_id, ai_summary, language)
 
+        # Step 11: Extract entities from AI insight
+        extract_entities(note_id, ai_summary, language)
+
         logger.info(f"✅ Note {note_id} processed successfully")
         log_activity(note_id, "note_processed", update_fields.get("title", extracted["title"]), "AI processing complete")
         send_push_notification(note_id, update_fields.get("title", extracted["title"]), "ready")
@@ -2127,6 +2259,67 @@ Be concise and insightful."""
 
 
 @app.task(bind=True, max_retries=1)
+def translate_notes_to_english(self, user_email: str):
+    """Translate all AI insights and titles to English for a specific user."""
+    import time as _time
+    logger.info(f"🌐 Starting translation to English for {user_email}...")
+
+    query = text("""
+        SELECT n.id, n.title, n.ai_insight FROM notes n
+        JOIN users u ON n.user_id = u.id
+        WHERE u.email = :email AND n.deleted_at IS NULL AND length(n.ai_insight) > 100
+        ORDER BY n.created_at DESC
+    """)
+    with engine.begin() as conn:
+        rows = conn.execute(query, {"email": user_email}).fetchall()
+
+    logger.info(f"🌐 Found {len(rows)} notes to translate")
+    count = 0
+    for row in rows:
+        try:
+            note_id = str(row[0])
+            old_title = row[1] or ""
+            old_insight = row[2] or ""
+
+            # Translate AI insight
+            prompt = f"""Translate the following AI insight to English. Output ONLY the translated text, nothing else. Keep all markdown formatting, links, and structure intact.
+
+{old_insight[:3000]}"""
+
+            new_insight = _call_claude_cli(prompt)
+            if new_insight.startswith("⚠️"):
+                gemini_key = os.getenv("GEMINI_API_KEY")
+                if gemini_key:
+                    new_insight = _call_gemini_api(prompt, gemini_key)
+
+            if new_insight and not new_insight.startswith("⚠️"):
+                # Also translate title
+                title_prompt = f"Translate this title to English. Output ONLY the translated title, nothing else: {old_title}"
+                new_title = _call_claude_cli(title_prompt)
+                if new_title.startswith("⚠️"):
+                    new_title = old_title
+
+                new_title = new_title.strip().strip('"').strip("'")
+                if len(new_title) > 200 or len(new_title) < 3:
+                    new_title = old_title
+
+                with engine.begin() as conn:
+                    conn.execute(
+                        text("UPDATE notes SET ai_insight = :insight, title = :title, updated_at = NOW() WHERE id = :nid"),
+                        {"insight": new_insight, "title": new_title, "nid": note_id}
+                    )
+                count += 1
+                logger.info(f"🌐 Translated {count}/{len(rows)}: {old_title[:40]} → {new_title[:40]}")
+
+            _time.sleep(2)
+        except Exception as e:
+            logger.warning(f"Translation failed for {row[0]}: {e}")
+
+    logger.info(f"🌐 Translation complete: {count}/{len(rows)}")
+    return {"translated": count, "total": len(rows)}
+
+
+@app.task(bind=True, max_retries=1)
 def backfill_relations(self):
     """Periodic task: find missing note relations across all users. Runs every 8 hours."""
     logger.info("🔗 Starting relation backfill...")
@@ -2214,4 +2407,42 @@ def backfill_relations(self):
 
     logger.info(f"🔗 Relation backfill complete: {total_linked} new relations, {total_checked} notes checked")
     return {"linked": total_linked, "checked": total_checked}
+
+
+@app.task(bind=True, max_retries=1)
+def backfill_entities(self):
+    """Backfill entity extraction for all notes that don't have entities yet."""
+    import time as _time
+    logger.info("🧬 Starting entity backfill...")
+
+    query = text("""
+        SELECT n.id, n.ai_insight,
+               COALESCE(u.ai_language, u.language, 'en') as lang
+        FROM notes n
+        JOIN users u ON n.user_id = u.id
+        WHERE n.deleted_at IS NULL
+        AND length(n.ai_insight) > 100
+        AND n.id NOT IN (SELECT DISTINCT note_id FROM note_entities)
+        ORDER BY n.created_at DESC
+    """)
+    with engine.begin() as conn:
+        rows = conn.execute(query).fetchall()
+
+    logger.info(f"🧬 Found {len(rows)} notes without entities")
+    count = 0
+    for row in rows:
+        try:
+            note_id = str(row[0])
+            ai_insight = row[1] or ""
+            lang = row[2] or "en"
+            extract_entities(note_id, ai_insight, lang)
+            count += 1
+            if count % 10 == 0:
+                logger.info(f"🧬 Entity backfill progress: {count}/{len(rows)}")
+            _time.sleep(2)  # Rate limit LLM calls
+        except Exception as e:
+            logger.warning(f"Entity backfill failed for {row[0]}: {e}")
+
+    logger.info(f"🧬 Entity backfill complete: {count}/{len(rows)}")
+    return {"processed": count, "total": len(rows)}
 

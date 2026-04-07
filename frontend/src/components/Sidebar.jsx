@@ -412,6 +412,20 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
           </NavLink>
 
           <NavLink
+            to="/entities"
+            className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+          >
+            <span className="icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+                <line x1="12" y1="2" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="22"/>
+                <line x1="2" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="22" y2="12"/>
+              </svg>
+            </span>
+            Entities
+          </NavLink>
+
+          <NavLink
             to="/chat"
             className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
           >
@@ -477,14 +491,8 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
 
       {/* ── Mobile Top Header ───────────────────────── */}
       <header className="mobile-top-header">
-        <button className="mobile-header-avatar" onClick={() => setShowProfile(!showProfile)}>
-          {avatarUrl ? (
-            <img src={avatarUrl} alt="" className="mobile-avatar-img" referrerPolicy="no-referrer" />
-          ) : (
-            <div className="mobile-avatar-placeholder">
-              {(user?.displayName || user?.email || '?')[0].toUpperCase()}
-            </div>
-          )}
+        <button className="mobile-header-avatar" onClick={() => navigate('/settings')}>
+          <GearIcon />
         </button>
         <div className="mobile-header-logo">Aether</div>
         <div className="mobile-header-right">
@@ -500,25 +508,6 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
         </div>
       </header>
 
-      {/* ── Profile Menu ─────────────────────────── */}
-      {showProfile && (
-        <>
-          <div className="profile-backdrop" onClick={() => setShowProfile(false)} />
-          <div className="profile-menu">
-            <div className="profile-menu-user">
-              {avatarUrl && <img src={avatarUrl} className="profile-menu-avatar" referrerPolicy="no-referrer" />}
-              <div className="profile-menu-info">
-                <span className="profile-menu-name">{user?.displayName || user?.email}</span>
-                <span className="profile-menu-email">{user?.email}</span>
-              </div>
-            </div>
-            <button className="profile-menu-logout" onClick={handleLogout}>
-              <LogoutIcon />
-              <span>{t('sign_out')}</span>
-            </button>
-          </div>
-        </>
-      )}
 
       {/* ── Notification Panel (full page overlay) ── */}
       {showNotifications && (
@@ -586,11 +575,16 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
           </NavLink>
 
           <NavLink
-            to="/settings"
+            to="/vault/graph"
             className={({ isActive }) => `mobile-tab ${isActive ? 'active' : ''}`}
           >
-            <span className="mobile-tab-icon"><GearIcon /></span>
-            <span className="mobile-tab-label">{t('settings')}</span>
+            <span className="mobile-tab-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="18" cy="6" r="3"/>
+                <line x1="8.5" y1="7.5" x2="15.5" y2="16.5"/><line x1="15.5" y1="7.5" x2="8.5" y2="16.5"/>
+              </svg>
+            </span>
+            <span className="mobile-tab-label">{lang === 'tr' ? 'Harita' : 'Graph'}</span>
           </NavLink>
 
           <button
