@@ -1981,6 +1981,45 @@ def backfill_titles(self):
 
 
 @app.task(bind=True, max_retries=1)
+def backfill_synthesis(self):
+    """Backfill synthesis pages for all notes not yet linked to any synthesis."""
+    import time as _time
+    logger.info("📚 Starting synthesis backfill...")
+
+    # Get notes that have AI insight + topic labels but no synthesis link
+    query = text("""
+        SELECT n.id, n.ai_insight,
+               COALESCE(u.ai_language, u.language, 'en') as lang
+        FROM notes n
+        JOIN users u ON n.user_id = u.id
+        WHERE n.deleted_at IS NULL
+        AND length(n.ai_insight) > 100
+        AND n.id NOT IN (SELECT note_id FROM synthesis_notes)
+        ORDER BY n.created_at DESC
+    """)
+    with engine.begin() as conn:
+        rows = conn.execute(query).fetchall()
+
+    logger.info(f"📚 Found {len(rows)} notes without synthesis")
+    count = 0
+    for row in rows:
+        try:
+            note_id = str(row[0])
+            ai_summary = row[1] or ""
+            lang = row[2] or "en"
+            update_synthesis_pages(note_id, ai_summary, lang)
+            count += 1
+            if count % 10 == 0:
+                logger.info(f"📚 Synthesis backfill progress: {count}/{len(rows)}")
+            _time.sleep(2)  # Rate limit LLM calls
+        except Exception as e:
+            logger.warning(f"Synthesis backfill failed for {row[0]}: {e}")
+
+    logger.info(f"📚 Synthesis backfill complete: {count}/{len(rows)}")
+    return {"processed": count, "total": len(rows)}
+
+
+@app.task(bind=True, max_retries=1)
 def backfill_relations(self):
     """Periodic task: find missing note relations across all users. Runs every 8 hours."""
     logger.info("🔗 Starting relation backfill...")

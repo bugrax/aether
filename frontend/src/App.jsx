@@ -14,6 +14,7 @@ import EditorPage from './pages/EditorPage';
 import SharePage from './pages/SharePage';
 import SettingsPage from './pages/SettingsPage';
 import SynthesisViewPage from './pages/SynthesisViewPage';
+import ChatPage from './pages/ChatPage';
 import SharedNotePage from './pages/SharedNotePage';
 
 function ProtectedLayout() {
@@ -93,6 +94,7 @@ function AppRoutes() {
         <Route path="/vault/synthesis/:id" element={<SynthesisViewPage />} />
         <Route path="/vault/:id" element={<EditorPage />} />
         <Route path="/share" element={<SharePage />} />
+        <Route path="/chat" element={<ChatPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={
