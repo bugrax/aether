@@ -102,6 +102,7 @@ func main() {
 	v1.Use(middleware.AuthRequired())
 	{
 		// Notes
+		v1.GET("/notes/stats", handlers.GetNoteStats)
 		v1.GET("/notes", handlers.ListNotes)
 		v1.GET("/notes/:id", handlers.GetNote)
 		v1.POST("/notes", handlers.CreateNote)

@@ -111,6 +111,49 @@ func ListNotes(c *gin.Context) {
 	})
 }
 
+// GetNoteStats returns lightweight counts for the dashboard.
+func GetNoteStats(c *gin.Context) {
+	user := middleware.GetUser(c)
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var total int64
+	database.DB.Model(&models.Note{}).Where("user_id = ? AND deleted_at IS NULL", user.ID).Count(&total)
+
+	var thisWeek int64
+	database.DB.Model(&models.Note{}).Where("user_id = ? AND deleted_at IS NULL AND created_at > NOW() - INTERVAL '7 days'", user.ID).Count(&thisWeek)
+
+	var processing int64
+	database.DB.Model(&models.Note{}).Where("user_id = ? AND deleted_at IS NULL AND status = 'processing'", user.ID).Count(&processing)
+
+	// Label counts
+	type labelCount struct {
+		LabelID string `json:"label_id"`
+		Name    string `json:"name"`
+		Color   string `json:"color"`
+		Count   int    `json:"count"`
+	}
+	var labelCounts []labelCount
+	database.DB.Raw(`
+		SELECT l.id as label_id, l.name, l.color, COUNT(nl.note_id) as count
+		FROM labels l
+		JOIN note_labels nl ON nl.label_id = l.id
+		JOIN notes n ON n.id = nl.note_id AND n.deleted_at IS NULL
+		WHERE l.user_id = ? AND l.deleted_at IS NULL
+		GROUP BY l.id, l.name, l.color
+		ORDER BY count DESC
+	`, user.ID).Scan(&labelCounts)
+
+	c.JSON(http.StatusOK, gin.H{
+		"total":        total,
+		"this_week":    thisWeek,
+		"processing":   processing,
+		"label_counts": labelCounts,
+	})
+}
+
 // GetNote returns a single note by ID.
 func GetNote(c *gin.Context) {
 	user := middleware.GetUser(c)

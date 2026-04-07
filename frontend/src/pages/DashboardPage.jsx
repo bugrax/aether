@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { notesAPI, labelsAPI, synthesisAPI, activityAPI, entitiesAPI } from '../api';
+import { notesAPI, synthesisAPI, activityAPI, entitiesAPI } from '../api';
 import { trackNoteOpen, trackLabelFilter, trackScreenView } from '../analytics';
 
 function translateLabel(name, t) {
@@ -31,9 +31,9 @@ export default function DashboardPage() {
   async function loadDashboard() {
     setLoading(true);
     try {
-      const [notesData, labelsData, synthData, actData, entData] = await Promise.all([
-        notesAPI.list({ limit: 20, offset: 0 }),
-        labelsAPI.list(),
+      const [statsData, notesData, synthData, actData, entData] = await Promise.all([
+        notesAPI.stats(),
+        notesAPI.list({ limit: 3, offset: 0 }),
         synthesisAPI.list().catch(() => ({ pages: [] })),
         activityAPI.list().catch(() => ({ activities: [] })),
         entitiesAPI.list().catch(() => ({ entities: [] })),
@@ -42,32 +42,26 @@ export default function DashboardPage() {
       setActivities((actData.activities || []).slice(0, 10));
       setTopEntities((entData.entities || []).slice(0, 8));
 
-      const notes = notesData.notes || [];
-      const total = notesData.total || notes.length;
-      const now = new Date();
-      const weekAgo = new Date(now - 7 * 86400000);
-      const thisWeek = notes.filter(n => new Date(n.created_at) > weekAgo).length;
-      const processing = notes.filter(n => n.status === 'processing').length;
+      setStats({
+        total: statsData.total || 0,
+        thisWeek: statsData.this_week || 0,
+        processing: statsData.processing || 0,
+      });
+      setRecentNotes((notesData.notes || []).slice(0, 3));
 
-      setStats({ total, thisWeek, processing });
-      setRecentNotes(notes.slice(0, 3));
-
-      // Count notes per label
-      const labelCounts = {};
-      for (const note of notes) {
-        for (const label of (note.labels || [])) {
-          labelCounts[label.id] = (labelCounts[label.id] || 0) + 1;
-        }
-      }
-
-      const labels = (labelsData.labels || [])
-        .map(l => ({ ...l, count: labelCounts[l.id] || 0 }))
-        .filter(l => l.count > 0)
+      // Label counts from stats endpoint (DB-accurate)
+      const labelCounts = (statsData.label_counts || [])
         .sort((a, b) => b.count - a.count)
         .slice(0, 6);
 
-      const maxCount = Math.max(...labels.map(l => l.count), 1);
-      setTopLabels(labels.map(l => ({ ...l, pct: Math.round((l.count / maxCount) * 100) })));
+      const maxCount = Math.max(...labelCounts.map(l => l.count), 1);
+      setTopLabels(labelCounts.map(l => ({
+        id: l.label_id,
+        name: l.name,
+        color: l.color,
+        count: l.count,
+        pct: Math.round((l.count / maxCount) * 100),
+      })));
     } catch (err) {
       console.error('Dashboard load failed:', err);
     } finally {

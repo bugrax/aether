@@ -51,6 +51,7 @@ export const notesAPI = {
   toggleShare: (id) => request('POST', `/notes/${id}/share`),
   search: (query) => request('GET', `/search?q=${encodeURIComponent(query)}`),
   related: (id) => request('GET', `/notes/${id}/related`),
+  stats: () => request('GET', '/notes/stats'),
 
   // SSE — stream note status updates
   streamStatus: (noteId, onMessage, onError) => {
