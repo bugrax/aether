@@ -16,6 +16,7 @@ import SettingsPage from './pages/SettingsPage';
 import SynthesisViewPage from './pages/SynthesisViewPage';
 import ChatPage from './pages/ChatPage';
 import GraphPage from './pages/GraphPage';
+import SynthesisListPage from './pages/SynthesisListPage';
 import EntitiesPage from './pages/EntitiesPage';
 import EntityDetailPage from './pages/EntityDetailPage';
 import SharedNotePage from './pages/SharedNotePage';
@@ -94,6 +95,7 @@ function AppRoutes() {
       <Route element={<ProtectedLayout />}>
         <Route path="/vault" element={<DashboardPage />} />
         <Route path="/vault/list" element={<VaultPage />} />
+        <Route path="/vault/synthesis" element={<SynthesisListPage />} />
         <Route path="/vault/synthesis/:id" element={<SynthesisViewPage />} />
         <Route path="/vault/:id" element={<EditorPage />} />
         <Route path="/share" element={<SharePage />} />

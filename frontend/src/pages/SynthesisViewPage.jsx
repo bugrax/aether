@@ -67,8 +67,8 @@ export default function SynthesisViewPage() {
 
   return (
     <div className="main-content">
-      <button className="editor-back" onClick={() => navigate('/vault')}>
-        ← {lang === 'tr' ? 'Geri' : 'Back'}
+      <button className="editor-back" onClick={() => navigate('/vault/synthesis')}>
+        ← {lang === 'tr' ? 'Sentezler' : 'Synthesis'}
       </button>
 
       <div style={{ marginBottom: 'var(--space-3)' }}>
