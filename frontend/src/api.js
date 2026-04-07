@@ -94,6 +94,11 @@ export const usersAPI = {
   registerFCMToken: (token) => request('POST', '/user/fcm-token', { token }),
 };
 
+// ── Knowledge Graph ──────────────────────────────────
+export const graphAPI = {
+  get: () => request('GET', '/graph'),
+};
+
 // ── Activity Log ─────────────────────────────────────
 export const activityAPI = {
   list: () => request('GET', '/activity'),

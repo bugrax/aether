@@ -117,6 +117,9 @@ func main() {
 		v1.DELETE("/user/account", handlers.DeleteAccount)
 		v1.POST("/user/fcm-token", handlers.RegisterFCMToken)
 
+		// Knowledge Graph
+		v1.GET("/graph", handlers.GetGraph)
+
 		// Activity Log
 		v1.GET("/activity", handlers.GetActivityLog)
 
