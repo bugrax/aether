@@ -324,9 +324,9 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
     if (!user) return;
     async function fetchCounts() {
       try {
-        const data = await notesAPI.list({ limit: 100, offset: 0 });
+        const data = await notesAPI.list({ limit: 20, offset: 0 });
         const notes = data.notes || [];
-        setTotalCount(notes.length);
+        setTotalCount(data.total || notes.length);
 
         const counts = {};
         for (const note of notes) {

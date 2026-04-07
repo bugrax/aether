@@ -32,7 +32,7 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const [notesData, labelsData, synthData, actData, entData] = await Promise.all([
-        notesAPI.list({ limit: 100, offset: 0 }),
+        notesAPI.list({ limit: 20, offset: 0 }),
         labelsAPI.list(),
         synthesisAPI.list().catch(() => ({ pages: [] })),
         activityAPI.list().catch(() => ({ activities: [] })),

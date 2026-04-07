@@ -40,6 +40,51 @@ DATABASE_URL = (
 )
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
+# ── MinIO / S3 Configuration ──────────────────────────
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "s3.relayhaus.org")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "aether-thumbnails")
+MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL", f"https://{MINIO_ENDPOINT}/{MINIO_BUCKET}")
+
+_s3_client = None
+
+def _get_s3():
+    """Get or create S3 client for MinIO."""
+    global _s3_client
+    if _s3_client is None and MINIO_ACCESS_KEY:
+        import boto3
+        _s3_client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{MINIO_ENDPOINT}",
+            aws_access_key_id=MINIO_ACCESS_KEY,
+            aws_secret_access_key=MINIO_SECRET_KEY,
+        )
+    return _s3_client
+
+
+def upload_thumbnail_to_minio(note_id: str, image_data: bytes, content_type: str = "image/jpeg") -> str:
+    """Upload thumbnail bytes to MinIO, return public URL."""
+    s3 = _get_s3()
+    if not s3:
+        return ""
+    try:
+        ext = "jpg" if "jpeg" in content_type else content_type.split("/")[-1]
+        key = f"{note_id}.{ext}"
+        s3.put_object(
+            Bucket=MINIO_BUCKET,
+            Key=key,
+            Body=image_data,
+            ContentType=content_type,
+        )
+        url = f"{MINIO_PUBLIC_URL}/{key}"
+        logger.info(f"📸 Thumbnail uploaded to MinIO: {key} ({len(image_data)} bytes)")
+        return url
+    except Exception as e:
+        logger.warning(f"⚠️ MinIO upload failed: {e}")
+        return ""
+
+
 # ── LLM Configuration ─────────────────────────────────
 LLM_API_URL = os.getenv("LLM_API_URL", "http://localhost:11434/api/generate")
 LLM_MODEL = os.getenv("LLM_MODEL", "kimi-2.5")
@@ -1958,7 +2003,20 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
             "content": extracted["content"],
         }
         if extracted.get("thumbnail"):
-            update_fields["thumbnail_url"] = extracted["thumbnail"]
+            thumb = extracted["thumbnail"]
+            # Upload base64 data URIs to MinIO for persistent, lightweight URLs
+            if thumb.startswith("data:image/"):
+                import base64 as b64mod
+                try:
+                    header, b64data = thumb.split(",", 1)
+                    ct = header.split(";")[0].replace("data:", "")
+                    img_bytes = b64mod.b64decode(b64data)
+                    minio_url = upload_thumbnail_to_minio(note_id, img_bytes, ct)
+                    if minio_url:
+                        thumb = minio_url
+                except Exception as e:
+                    logger.warning(f"⚠️ Base64→MinIO failed: {e}")
+            update_fields["thumbnail_url"] = thumb
         update_note_status(note_id, "processing", **update_fields)
 
         # Step 3: Generate AI summary
@@ -2445,4 +2503,51 @@ def backfill_entities(self):
 
     logger.info(f"🧬 Entity backfill complete: {count}/{len(rows)}")
     return {"processed": count, "total": len(rows)}
+
+
+@app.task(bind=True, max_retries=1)
+def migrate_thumbnails_to_minio(self):
+    """Migrate base64 data URI thumbnails from DB to MinIO. One-time migration."""
+    import base64 as b64mod
+    logger.info("📸 Starting thumbnail migration to MinIO...")
+
+    query = text("""
+        SELECT id, thumbnail_url FROM notes
+        WHERE deleted_at IS NULL AND thumbnail_url LIKE 'data:image/%'
+        ORDER BY created_at DESC
+    """)
+    with engine.begin() as conn:
+        rows = conn.execute(query).fetchall()
+
+    logger.info(f"📸 Found {len(rows)} notes with base64 thumbnails")
+    count = 0
+    saved_bytes = 0
+
+    for row in rows:
+        try:
+            note_id = str(row[0])
+            thumb = row[1]
+
+            header, b64data = thumb.split(",", 1)
+            ct = header.split(";")[0].replace("data:", "")
+            img_bytes = b64mod.b64decode(b64data)
+            original_size = len(thumb)
+
+            minio_url = upload_thumbnail_to_minio(note_id, img_bytes, ct)
+            if minio_url:
+                with engine.begin() as conn:
+                    conn.execute(
+                        text("UPDATE notes SET thumbnail_url = :url, updated_at = NOW() WHERE id = :nid"),
+                        {"url": minio_url, "nid": note_id}
+                    )
+                count += 1
+                saved_bytes += original_size - len(minio_url)
+                logger.info(f"📸 Migrated {count}/{len(rows)}: {note_id} ({original_size//1024}KB → URL)")
+
+        except Exception as e:
+            logger.warning(f"Thumbnail migration failed for {row[0]}: {e}")
+
+    saved_mb = saved_bytes / (1024 * 1024)
+    logger.info(f"📸 Thumbnail migration complete: {count}/{len(rows)} migrated, {saved_mb:.1f}MB saved from DB")
+    return {"migrated": count, "total": len(rows), "saved_mb": round(saved_mb, 1)}
 

@@ -87,6 +87,11 @@ services:
       APIFY_TOKEN: ${APIFY_TOKEN:-}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-aether-8717a}
       GOOGLE_APPLICATION_CREDENTIALS: /app/firebase-service-account.json
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-s3.relayhaus.org}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-}
+      MINIO_BUCKET: ${MINIO_BUCKET:-aether-thumbnails}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-https://s3.relayhaus.org/aether-thumbnails}
     volumes:
       - /root/.ssh:/root/.ssh:ro
       - ./firebase-service-account.json:/app/firebase-service-account.json:ro
