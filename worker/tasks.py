@@ -243,6 +243,11 @@ def _extract_instagram(url: str) -> dict:
                 posts = resp.json()
                 if posts and len(posts) > 0:
                     post = posts[0]
+                    # Check for Apify errors
+                    if post.get("error"):
+                        logger.warning(f"📸 Apify error: {post.get('error')} — {post.get('errorDescription', '')}")
+                        if post["error"] == "restricted_page":
+                            content = f"This Instagram post has restricted access and could not be fully extracted. URL: {url}"
                     # Caption
                     if post.get("caption"):
                         content = post["caption"]
@@ -1343,6 +1348,221 @@ def send_push_notification(note_id: str, title: str, status: str):
         logger.warning(f"⚠️ Push notification failed: {e}")
 
 
+# ── Note Relations (Cross-Reference) ───────────────────
+
+def find_related_notes(note_id: str):
+    """Find semantically related notes and create relation entries."""
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(
+                text("SELECT user_id, embedding FROM notes WHERE id = :nid AND embedding IS NOT NULL"),
+                {"nid": note_id}
+            ).fetchone()
+            if not row or not row[1]:
+                return
+            user_id = str(row[0])
+
+        # Find top 5 most similar notes using pgvector
+        with engine.begin() as conn:
+            similar = conn.execute(
+                text("""
+                    SELECT id, title, 1 - (embedding <=> (SELECT embedding FROM notes WHERE id = :nid)) as similarity
+                    FROM notes
+                    WHERE user_id = :uid AND id != :nid AND embedding IS NOT NULL AND deleted_at IS NULL
+                    ORDER BY embedding <=> (SELECT embedding FROM notes WHERE id = :nid)
+                    LIMIT 5
+                """),
+                {"nid": note_id, "uid": user_id}
+            ).fetchall()
+
+        if not similar:
+            return
+
+        linked = 0
+        for sim_row in similar:
+            sim_id = str(sim_row[0])
+            sim_title = sim_row[1] or ""
+            similarity = float(sim_row[2]) if sim_row[2] else 0
+
+            # Only link if similarity > 0.3 (meaningful relation)
+            if similarity < 0.3:
+                continue
+
+            # Check if relation already exists
+            with engine.begin() as conn:
+                exists = conn.execute(
+                    text("""SELECT 1 FROM note_relations
+                            WHERE (note_id_a = :a AND note_id_b = :b) OR (note_id_a = :b AND note_id_b = :a)"""),
+                    {"a": note_id, "b": sim_id}
+                ).fetchone()
+                if exists:
+                    continue
+
+            # Determine relation type based on similarity score
+            if similarity > 0.7:
+                rel_type = "related"
+                desc = f"Highly related content (similarity: {similarity:.0%})"
+            elif similarity > 0.5:
+                rel_type = "related"
+                desc = f"Related content (similarity: {similarity:.0%})"
+            else:
+                rel_type = "related"
+                desc = f"Loosely related (similarity: {similarity:.0%})"
+
+            with engine.begin() as conn:
+                conn.execute(
+                    text("""INSERT INTO note_relations (id, note_id_a, note_id_b, relation_type, description, score, created_at)
+                            VALUES (gen_random_uuid(), :a, :b, :type, :desc, :score, NOW())"""),
+                    {"a": note_id, "b": sim_id, "type": rel_type, "desc": desc, "score": similarity}
+                )
+                linked += 1
+
+        if linked > 0:
+            logger.info(f"🔗 Linked note {note_id} to {linked} related notes")
+
+    except Exception as e:
+        logger.warning(f"⚠️ Note relation detection failed: {e}")
+
+
+# ── Synthesis Pages ────────────────────────────────────
+
+def update_synthesis_pages(note_id: str, ai_summary: str, language: str = "en"):
+    """Create or update synthesis pages based on the note's topic labels."""
+    if not ai_summary or len(ai_summary) < 100:
+        return
+
+    try:
+        # Get user_id and note's labels
+        with engine.begin() as conn:
+            row = conn.execute(
+                text("SELECT user_id, title FROM notes WHERE id = :nid"),
+                {"nid": note_id}
+            ).fetchone()
+            if not row:
+                return
+            user_id = str(row[0])
+            note_title = row[1] or ""
+
+            # Get this note's labels (topic labels, not source labels)
+            labels = conn.execute(
+                text("""
+                    SELECT l.name FROM labels l
+                    JOIN note_labels nl ON nl.label_id = l.id
+                    WHERE nl.note_id = :nid
+                    AND LOWER(l.name) NOT IN ('youtube', 'instagram', 'twitter/x', 'reddit', 'github', 'medium', 'wikipedia', 'arxiv', 'stackoverflow', 'hacker news')
+                """),
+                {"nid": note_id}
+            ).fetchall()
+
+        if not labels:
+            return
+
+        # For each topic label, update or create a synthesis page
+        for label_row in labels[:3]:  # Max 3 topics per note
+            topic = label_row[0]
+            _update_single_synthesis(user_id, note_id, note_title, topic, ai_summary, language)
+
+    except Exception as e:
+        logger.warning(f"⚠️ Synthesis page update failed: {e}")
+
+
+def _update_single_synthesis(user_id: str, note_id: str, note_title: str, topic: str, ai_summary: str, language: str):
+    """Update or create a single synthesis page for a topic."""
+    import time as _time
+
+    # Check if synthesis page exists for this topic
+    with engine.begin() as conn:
+        existing = conn.execute(
+            text("SELECT id, content, note_count FROM synthesis_pages WHERE user_id = :uid AND LOWER(topic) = LOWER(:topic) AND deleted_at IS NULL"),
+            {"uid": user_id, "topic": topic}
+        ).fetchone()
+
+    lang_name = "Turkish" if language == "tr" else "English"
+
+    if existing:
+        page_id = str(existing[0])
+        old_content = existing[1] or ""
+        note_count = existing[2] or 0
+
+        # Check if note already linked
+        with engine.begin() as conn:
+            already_linked = conn.execute(
+                text("SELECT 1 FROM synthesis_notes WHERE synthesis_page_id = :pid AND note_id = :nid"),
+                {"pid": page_id, "nid": note_id}
+            ).fetchone()
+        if already_linked:
+            return
+
+        # Update existing synthesis page
+        prompt = f"""Update this knowledge synthesis about "{topic}" with a new note. Output ONLY the updated markdown, no commentary.
+
+EXISTING SYNTHESIS ({note_count} notes):
+{old_content[:2000]}
+
+NEW NOTE: "{note_title}"
+{ai_summary[:1000]}
+
+Write entirely in {lang_name}. Keep existing insights, add new ones. Note contradictions. Update the sources list. Output ONLY markdown content."""
+
+        result = _call_claude_cli(prompt)
+        if result.startswith("⚠️"):
+            gemini_key = os.getenv("GEMINI_API_KEY")
+            if gemini_key:
+                result = _call_gemini_api(prompt, gemini_key)
+
+        if result and not result.startswith("⚠️"):
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE synthesis_pages SET content = :content, note_count = :nc, updated_at = NOW() WHERE id = :pid"),
+                    {"content": result, "nc": note_count + 1, "pid": page_id}
+                )
+                conn.execute(
+                    text("INSERT INTO synthesis_notes (synthesis_page_id, note_id) VALUES (:pid, :nid)"),
+                    {"pid": page_id, "nid": note_id}
+                )
+            logger.info(f"📚 Updated synthesis '{topic}' ({note_count + 1} notes)")
+    else:
+        # Create new synthesis page
+        prompt = f"""Write a knowledge synthesis about "{topic}" based on this note. Output ONLY the markdown content, no meta-commentary.
+
+NOTE: "{note_title}"
+{ai_summary[:1500]}
+
+Write entirely in {lang_name}. Use this structure:
+
+## Overview
+Brief topic summary based on this note.
+
+## Key Insights
+Main takeaways as bullet points.
+
+## Sources
+- {note_title}
+
+Output ONLY the synthesis content. Do not ask questions or add commentary."""
+
+        result = _call_claude_cli(prompt)
+        if result.startswith("⚠️"):
+            gemini_key = os.getenv("GEMINI_API_KEY")
+            if gemini_key:
+                result = _call_gemini_api(prompt, gemini_key)
+
+        if result and not result.startswith("⚠️"):
+            title = f"{topic}: Knowledge Synthesis" if language != "tr" else f"{topic}: Bilgi Sentezi"
+            with engine.begin() as conn:
+                page_result = conn.execute(
+                    text("""INSERT INTO synthesis_pages (id, user_id, topic, title, content, note_count, created_at, updated_at)
+                            VALUES (gen_random_uuid(), :uid, :topic, :title, :content, 1, NOW(), NOW()) RETURNING id"""),
+                    {"uid": user_id, "topic": topic, "title": title, "content": result}
+                )
+                page_id = str(page_result.fetchone()[0])
+                conn.execute(
+                    text("INSERT INTO synthesis_notes (synthesis_page_id, note_id) VALUES (:pid, :nid)"),
+                    {"pid": page_id, "nid": note_id}
+                )
+            logger.info(f"📚 Created synthesis '{topic}' (1 note)")
+
+
 # ── Comment Extraction ─────────────────────────────────
 
 def extract_comments(url: str) -> list:
@@ -1621,6 +1841,12 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
 
         # Step 8: AI-based topic labels from content
         auto_label_topics(note_id, extracted["title"], ai_summary, language)
+
+        # Step 9: Find and link related notes
+        find_related_notes(note_id)
+
+        # Step 10: Update or create synthesis pages for this note's topics
+        update_synthesis_pages(note_id, ai_summary, language)
 
         logger.info(f"✅ Note {note_id} processed successfully")
         send_push_notification(note_id, update_fields.get("title", extracted["title"]), "ready")

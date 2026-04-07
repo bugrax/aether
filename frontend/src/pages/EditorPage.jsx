@@ -6,6 +6,53 @@ import RichTextEditor from '../components/editor/RichTextEditor';
 import { stripHTML } from '../components/editor/editorUtils';
 import { Capacitor } from '@capacitor/core';
 
+function RelatedNotesSection({ noteId, navigate, t }) {
+  const [related, setRelated] = useState([]);
+
+  useEffect(() => {
+    if (!noteId) return;
+    notesAPI.related(noteId).then(data => {
+      setRelated(data.related || []);
+    }).catch(() => {});
+  }, [noteId]);
+
+  if (!related.length) return null;
+
+  return (
+    <div style={{ marginTop: 'var(--space-5)', paddingTop: 'var(--space-4)', borderTop: '1px solid var(--outline-variant)' }}>
+      <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--on-surface-variant)', marginBottom: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+        Related Notes
+      </h3>
+      {related.map(r => (
+        <div key={r.id}
+          onClick={() => navigate(`/vault/${r.id}`)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+            padding: 'var(--space-2) var(--space-3)', marginBottom: 'var(--space-2)',
+            background: 'var(--surface-container-low)', borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--outline-variant)', cursor: 'pointer',
+          }}>
+          {r.thumbnail_url && (
+            <img src={r.thumbnail_url} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: 'cover' }} />
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--on-surface)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--outline)' }}>{r.relation_description}</div>
+          </div>
+          <span style={{
+            fontSize: '0.6rem', padding: '2px 6px', borderRadius: 'var(--radius-full)',
+            border: '1px solid var(--primary)', color: 'var(--primary)',
+          }}>{r.relation_type}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 async function nativeShare(title, url) {
   if (Capacitor.isNativePlatform()) {
     const { Share } = await import('@capacitor/share');
@@ -428,7 +475,10 @@ export default function EditorPage() {
         )}
 
         {activeTab === 'ai' && note?.ai_insight && (
-          <AIInsightView insight={note.ai_insight} sourceUrl={note.source_url} noteId={note.id} shareToken={note.share_token} t={t} />
+          <>
+            <AIInsightView insight={note.ai_insight} sourceUrl={note.source_url} noteId={note.id} shareToken={note.share_token} t={t} />
+            <RelatedNotesSection noteId={note.id} navigate={navigate} t={t} />
+          </>
         )}
 
         {activeTab === 'history' && note && (

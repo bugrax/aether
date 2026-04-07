@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
-import { chatAPI } from '../api';
+import { chatAPI, notesAPI } from '../api';
 import { trackChatMessage, trackChatChipClick, trackAetherChatHistory, trackNoteOpen } from '../analytics';
 
 function renderMarkdown(text) {
@@ -168,6 +168,21 @@ export default function AetherChat({ user, onClose, panelRef, expanded, setExpan
   const handleSubmit = (e) => { e.preventDefault(); console.log('[AetherChat] Submit, input:', input); sendMessage(input); };
   const handleChip = (text) => { console.log('[AetherChat] Chip:', text); trackChatChipClick(text); sendMessage(text); };
 
+  const handleSaveToVault = async (msg) => {
+    try {
+      const title = msg.content.split('\n')[0].replace(/[#*_\-|>]+/g, '').trim().substring(0, 100) || 'Chat Insight';
+      const note = await notesAPI.create({
+        title,
+        content: msg.content,
+        source_url: '',
+      });
+      // Mark as saved visually
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, saved: true } : m));
+    } catch (err) {
+      console.error('Save to vault failed:', err);
+    }
+  };
+
   const handleFeedback = async (msgId, value) => {
     setMessages(prev => prev.map(m =>
       m.id === msgId ? { ...m, feedback: m.feedback === value ? 0 : value } : m
@@ -297,6 +312,18 @@ export default function AetherChat({ user, onClose, panelRef, expanded, setExpan
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17" />
                   </svg>
+                </button>
+                <button
+                  className={`aether-feedback-btn save-btn ${msg.saved ? 'active' : ''}`}
+                  onClick={() => !msg.saved && handleSaveToVault(msg)}
+                  disabled={msg.saved}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                    <polyline points="17 21 17 13 7 13 7 21" />
+                    <polyline points="7 3 7 8 15 8" />
+                  </svg>
+                  {msg.saved && <span style={{fontSize: '0.6rem', marginLeft: 2}}>✓</span>}
                 </button>
               </div>
             )}

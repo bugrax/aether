@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { notesAPI, labelsAPI } from '../api';
+import { notesAPI, labelsAPI, synthesisAPI } from '../api';
 import { trackNoteOpen, trackLabelFilter, trackScreenView } from '../analytics';
 
 function translateLabel(name, t) {
@@ -18,6 +18,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState({ total: 0, thisWeek: 0, processing: 0 });
   const [topLabels, setTopLabels] = useState([]);
   const [recentNotes, setRecentNotes] = useState([]);
+  const [synthPages, setSynthPages] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,10 +29,12 @@ export default function DashboardPage() {
   async function loadDashboard() {
     setLoading(true);
     try {
-      const [notesData, labelsData] = await Promise.all([
+      const [notesData, labelsData, synthData] = await Promise.all([
         notesAPI.list({ limit: 100, offset: 0 }),
         labelsAPI.list(),
+        synthesisAPI.list().catch(() => ({ pages: [] })),
       ]);
+      setSynthPages((synthData.pages || []).slice(0, 5));
 
       const notes = notesData.notes || [];
       const total = notesData.total || notes.length;
@@ -132,6 +135,26 @@ export default function DashboardPage() {
                 </div>
                 <span className="dash-label-count">{l.count}</span>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Synthesis Pages */}
+      {synthPages.length > 0 && (
+        <div className="dash-section">
+          <h2 className="dash-section-title">{lang === 'tr' ? 'Bilgi Sentezleri' : 'Knowledge Synthesis'}</h2>
+          <div className="dash-recent">
+            {synthPages.map(page => (
+              <article key={page.id} className="dash-recent-card" style={{ borderLeft: '3px solid var(--primary)' }}
+                onClick={() => navigate(`/vault/synthesis/${page.id}`)}>
+                <div className="dash-recent-info">
+                  <span className="dash-recent-title">{page.title}</span>
+                  <span className="dash-recent-label" style={{ color: 'var(--primary)' }}>
+                    {page.note_count} {lang === 'tr' ? 'not' : 'notes'} · {translateLabel(page.topic, t)}
+                  </span>
+                </div>
+              </article>
             ))}
           </div>
         </div>

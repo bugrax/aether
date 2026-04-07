@@ -117,6 +117,13 @@ func main() {
 		v1.DELETE("/user/account", handlers.DeleteAccount)
 		v1.POST("/user/fcm-token", handlers.RegisterFCMToken)
 
+		// Synthesis Pages
+		v1.GET("/synthesis", handlers.ListSynthesisPages)
+		v1.GET("/synthesis/:id", handlers.GetSynthesisPage)
+
+		// Note Relations
+		v1.GET("/notes/:id/related", handlers.GetRelatedNotes)
+
 		// Chat
 		v1.POST("/chat", handlers.ChatMessage)
 		v1.POST("/chat/:id/feedback", handlers.ChatFeedback)

@@ -50,6 +50,7 @@ export const notesAPI = {
   shareURL: (url) => request('POST', '/share', { url }),
   toggleShare: (id) => request('POST', `/notes/${id}/share`),
   search: (query) => request('GET', `/search?q=${encodeURIComponent(query)}`),
+  related: (id) => request('GET', `/notes/${id}/related`),
 
   // SSE — stream note status updates
   streamStatus: (noteId, onMessage, onError) => {
@@ -91,6 +92,12 @@ export const usersAPI = {
   updateSettings: (data) => request('PATCH', '/user/settings', data),
   deleteAccount: () => request('DELETE', '/user/account'),
   registerFCMToken: (token) => request('POST', '/user/fcm-token', { token }),
+};
+
+// ── Synthesis Pages ──────────────────────────────────
+export const synthesisAPI = {
+  list: () => request('GET', '/synthesis'),
+  get: (id) => request('GET', `/synthesis/${id}`),
 };
 
 // ── Chat ─────────────────────────────────────────────

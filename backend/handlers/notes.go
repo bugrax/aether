@@ -126,6 +126,43 @@ func GetNote(c *gin.Context) {
 	c.JSON(http.StatusOK, note)
 }
 
+// GetRelatedNotes returns notes related to the given note.
+func GetRelatedNotes(c *gin.Context) {
+	user := middleware.GetUser(c)
+	noteID := c.Param("id")
+
+	var relations []models.NoteRelation
+	database.DB.Where("note_id_a = ? OR note_id_b = ?", noteID, noteID).
+		Order("score DESC").
+		Limit(5).
+		Find(&relations)
+
+	type RelatedNote struct {
+		models.Note
+		RelationType string `json:"relation_type"`
+		Description  string `json:"relation_description"`
+	}
+
+	var results []RelatedNote
+	for _, rel := range relations {
+		relatedID := rel.NoteIDB.String()
+		if relatedID == noteID {
+			relatedID = rel.NoteIDA.String()
+		}
+		var note models.Note
+		if err := database.DB.Where("id = ? AND user_id = ?", relatedID, user.ID).
+			Preload("Labels").First(&note).Error; err == nil {
+			results = append(results, RelatedNote{
+				Note:         note,
+				RelationType: rel.RelationType,
+				Description:  rel.Description,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"related": results})
+}
+
 // CreateNote creates a new note.
 func CreateNote(c *gin.Context) {
 	user := middleware.GetUser(c)

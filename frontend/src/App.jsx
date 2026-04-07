@@ -13,6 +13,7 @@ import VaultPage from './pages/VaultPage';
 import EditorPage from './pages/EditorPage';
 import SharePage from './pages/SharePage';
 import SettingsPage from './pages/SettingsPage';
+import SynthesisViewPage from './pages/SynthesisViewPage';
 import SharedNotePage from './pages/SharedNotePage';
 
 function ProtectedLayout() {
@@ -89,6 +90,7 @@ function AppRoutes() {
       <Route element={<ProtectedLayout />}>
         <Route path="/vault" element={<DashboardPage />} />
         <Route path="/vault/list" element={<VaultPage />} />
+        <Route path="/vault/synthesis/:id" element={<SynthesisViewPage />} />
         <Route path="/vault/:id" element={<EditorPage />} />
         <Route path="/share" element={<SharePage />} />
         <Route path="/settings" element={<SettingsPage />} />

@@ -2871,6 +2871,10 @@ p {
     color: var(--primary);
   }
 
+  .aether-feedback-btn.save-btn.active {
+    color: var(--secondary);
+  }
+
   .aether-chat-msg {
     margin-bottom: var(--space-3);
   }
