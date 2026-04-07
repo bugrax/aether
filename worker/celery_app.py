@@ -7,6 +7,7 @@ Start the worker with:
 
 import os
 from celery import Celery
+from celery.schedules import crontab
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -36,6 +37,10 @@ app.conf.update(
         "backfill-relations": {
             "task": "tasks.backfill_relations",
             "schedule": 90,  # Every 90 seconds
+        },
+        "weekly-synthesis": {
+            "task": "tasks.generate_weekly_synthesis",
+            "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sunday 3am UTC
         },
     },
 )

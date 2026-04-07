@@ -326,7 +326,17 @@ Each note in the context below includes its ID. Always link to notes when mentio
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("Reference specific notes by title when relevant. Keep responses focused and actionable.")
+	// Include user's custom AI rules
+	if user.AIRules != "" {
+		sb.WriteString(fmt.Sprintf("\nUSER'S CUSTOM RULES:\n%s\n\n", user.AIRules))
+	}
+
+	sb.WriteString(`Reference specific notes by title when relevant. Keep responses focused and actionable.
+
+SPECIAL COMMANDS you can handle:
+- If user asks to "analyze vault" or "vault health" or "vault'umu analiz et": Analyze the notes context for contradictions, knowledge gaps, stale content, and suggest improvements.
+- If user asks for "weekly summary" or "haftalık özet": Summarize recent activity grouped by topic with cross-connections.
+- If user asks to "find contradictions" or "çelişkileri bul": Compare notes and highlight opposing claims.`)
 	return sb.String()
 }
 

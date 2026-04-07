@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { notesAPI, labelsAPI, synthesisAPI } from '../api';
+import { notesAPI, labelsAPI, synthesisAPI, activityAPI } from '../api';
 import { trackNoteOpen, trackLabelFilter, trackScreenView } from '../analytics';
 
 function translateLabel(name, t) {
@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const [topLabels, setTopLabels] = useState([]);
   const [recentNotes, setRecentNotes] = useState([]);
   const [synthPages, setSynthPages] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -29,12 +30,14 @@ export default function DashboardPage() {
   async function loadDashboard() {
     setLoading(true);
     try {
-      const [notesData, labelsData, synthData] = await Promise.all([
+      const [notesData, labelsData, synthData, actData] = await Promise.all([
         notesAPI.list({ limit: 100, offset: 0 }),
         labelsAPI.list(),
         synthesisAPI.list().catch(() => ({ pages: [] })),
+        activityAPI.list().catch(() => ({ activities: [] })),
       ]);
       setSynthPages((synthData.pages || []).slice(0, 5));
+      setActivities((actData.activities || []).slice(0, 10));
 
       const notes = notesData.notes || [];
       const total = notesData.total || notes.length;
@@ -186,6 +189,37 @@ export default function DashboardPage() {
                   )}
                 </div>
               </article>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Activity Log */}
+      {activities.length > 0 && (
+        <div className="dash-section">
+          <h2 className="dash-section-title">{lang === 'tr' ? 'Son Aktiviteler' : 'Recent Activity'}</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+            {activities.map(a => (
+              <div key={a.id} style={{
+                display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+                padding: 'var(--space-2) var(--space-3)',
+                fontSize: '0.75rem', color: 'var(--on-surface-variant)',
+              }}
+              onClick={() => a.note_id && navigate(`/vault/${a.note_id}`)}
+              >
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                  background: a.action === 'note_processed' ? 'var(--secondary)' :
+                    a.action === 'relation_found' ? 'var(--primary)' :
+                    a.action === 'synthesis_created' ? 'var(--tertiary)' : 'var(--outline)',
+                }} />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {a.title}
+                </span>
+                <span style={{ fontSize: '0.65rem', color: 'var(--outline)', flexShrink: 0 }}>
+                  {new Date(a.created_at).toLocaleDateString(lang === 'tr' ? 'tr-TR' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
             ))}
           </div>
         </div>

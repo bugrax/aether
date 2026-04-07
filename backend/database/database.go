@@ -44,6 +44,7 @@ func Connect(cfg *config.Config) {
 		&models.SynthesisPage{},
 		&models.SynthesisNote{},
 		&models.NoteRelation{},
+		&models.ActivityLog{},
 	)
 	if err != nil {
 		log.Fatalf("❌ Failed to run migrations: %v", err)

@@ -165,6 +165,33 @@ export default function SettingsPage() {
           </section>
         )}
 
+        {/* AI Rules */}
+        <section style={{
+          background: 'var(--surface)',
+          padding: 'var(--space-5)',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--outline-variant)'
+        }}>
+          <h2 style={{ fontSize: '1.25rem', marginBottom: 'var(--space-2)' }}>
+            {lang === 'tr' ? 'AI Kuralları' : 'AI Rules'}
+          </h2>
+          <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.8125rem', marginBottom: 'var(--space-3)' }}>
+            {lang === 'tr' ? 'AI\'ın içeriklerinizi nasıl işleyeceğini ve analiz edeceğini özelleştirin.' : 'Customize how AI processes and analyzes your content.'}
+          </p>
+          <textarea
+            defaultValue=""
+            placeholder={lang === 'tr' ? 'Örn: Sağlık içeriklerini Wellness altında kategorize et. Türkçe kaynaklara öncelik ver.' : 'E.g.: Always categorize health content under Wellness. Prioritize actionable takeaways.'}
+            onBlur={(e) => usersAPI.updateSettings({ ai_rules: e.target.value })}
+            style={{
+              width: '100%', minHeight: 100, padding: 'var(--space-3)',
+              background: 'var(--surface-container)', border: '1px solid var(--outline-variant)',
+              borderRadius: 'var(--radius-md)', color: 'var(--on-surface)',
+              fontSize: '0.8125rem', fontFamily: 'var(--font-body)',
+              resize: 'vertical', outline: 'none',
+            }}
+          />
+        </section>
+
         {/* Manage Labels */}
         <section className="settings-section">
           <LabelManager labels={labels} onLabelsChanged={reloadLabels} />

@@ -94,6 +94,11 @@ export const usersAPI = {
   registerFCMToken: (token) => request('POST', '/user/fcm-token', { token }),
 };
 
+// ── Activity Log ─────────────────────────────────────
+export const activityAPI = {
+  list: () => request('GET', '/activity'),
+};
+
 // ── Synthesis Pages ──────────────────────────────────
 export const synthesisAPI = {
   list: () => request('GET', '/synthesis'),

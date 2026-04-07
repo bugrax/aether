@@ -17,8 +17,8 @@ function renderMarkdown(text) {
   if (!text) return '';
   let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   html = html.replace(/\[([^\]]+)\]\(aether:\/\/note\/([a-f0-9-]+)\)/g,
-    '<a class="aether-note-link" data-note-id="$2" href="#">$1</a>');
-  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    '<a class="aether-note-link" data-note-id="$2" href="#" style="color:#b79fff;text-decoration:underline">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank" style="color:#b79fff;text-decoration:underline">$1</a>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
   html = html.replace(/^[-•] (.+)$/gm, '<li>$1</li>');
@@ -202,7 +202,7 @@ export default function ChatPage() {
               padding: 'var(--space-3)', borderRadius: 'var(--radius-md)', fontSize: '0.8125rem', lineHeight: 1.55,
               background: msg.role === 'user' ? 'var(--primary-container)' : 'linear-gradient(135deg, rgba(183,159,255,0.06), rgba(144,147,255,0.03))',
               border: msg.role === 'user' ? 'none' : '1px solid rgba(183,159,255,0.1)',
-              color: 'var(--on-surface)',
+              color: msg.role === 'user' ? '#000' : 'var(--on-surface)',
             }}>
               {msg.role === 'assistant' ? <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} /> : <p style={{ margin: 0 }}>{msg.content}</p>}
             </div>

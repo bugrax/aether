@@ -117,6 +117,9 @@ func main() {
 		v1.DELETE("/user/account", handlers.DeleteAccount)
 		v1.POST("/user/fcm-token", handlers.RegisterFCMToken)
 
+		// Activity Log
+		v1.GET("/activity", handlers.GetActivityLog)
+
 		// Synthesis Pages
 		v1.GET("/synthesis", handlers.ListSynthesisPages)
 		v1.GET("/synthesis/:id", handlers.GetSynthesisPage)

@@ -17,6 +17,7 @@ type User struct {
 	Language   string         `gorm:"size:10;default:'en'" json:"language"`
 	AILanguage string         `gorm:"size:10;default:''" json:"ai_language"`
 	FCMToken   string         `gorm:"size:512;default:''" json:"-"`
+	AIRules    string         `gorm:"type:text;default:''" json:"ai_rules,omitempty"`
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
 	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`

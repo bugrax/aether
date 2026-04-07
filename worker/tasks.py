@@ -1348,6 +1348,24 @@ def send_push_notification(note_id: str, title: str, status: str):
         logger.warning(f"⚠️ Push notification failed: {e}")
 
 
+# ── Activity Logging ───────────────────────────────────
+
+def log_activity(note_id: str, action: str, title: str, description: str = ""):
+    """Log an activity event for the note's owner."""
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(text("SELECT user_id FROM notes WHERE id = :nid"), {"nid": note_id}).fetchone()
+            if not row:
+                return
+            conn.execute(
+                text("""INSERT INTO activity_logs (id, user_id, action, title, description, note_id, created_at)
+                        VALUES (gen_random_uuid(), :uid, :action, :title, :desc, :nid, NOW())"""),
+                {"uid": str(row[0]), "action": action, "title": title, "desc": description, "nid": note_id}
+            )
+    except Exception:
+        pass  # Non-critical
+
+
 # ── Note Relations (Cross-Reference) ───────────────────
 
 def find_related_notes(note_id: str):
@@ -1419,6 +1437,7 @@ def find_related_notes(note_id: str):
 
         if linked > 0:
             logger.info(f"🔗 Linked note {note_id} to {linked} related notes")
+            log_activity(note_id, "relation_found", f"{linked} related notes found", f"Cross-referenced with {linked} similar notes")
 
     except Exception as e:
         logger.warning(f"⚠️ Note relation detection failed: {e}")
@@ -1849,6 +1868,7 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
         update_synthesis_pages(note_id, ai_summary, language)
 
         logger.info(f"✅ Note {note_id} processed successfully")
+        log_activity(note_id, "note_processed", update_fields.get("title", extracted["title"]), "AI processing complete")
         send_push_notification(note_id, update_fields.get("title", extracted["title"]), "ready")
         return {"status": "success", "note_id": note_id}
 
@@ -2017,6 +2037,93 @@ def backfill_synthesis(self):
 
     logger.info(f"📚 Synthesis backfill complete: {count}/{len(rows)}")
     return {"processed": count, "total": len(rows)}
+
+
+@app.task(bind=True, max_retries=1)
+def generate_weekly_synthesis(self):
+    """Generate a weekly knowledge synthesis for each user. Runs Sunday 3am."""
+    logger.info("📊 Starting weekly synthesis generation...")
+
+    # Get all users with notes from the last 7 days
+    query = text("""
+        SELECT DISTINCT u.id, u.language, u.ai_language
+        FROM users u
+        JOIN notes n ON n.user_id = u.id
+        WHERE n.deleted_at IS NULL
+        AND n.created_at > NOW() - INTERVAL '7 days'
+        AND n.status = 'ready'
+    """)
+    with engine.begin() as conn:
+        users = conn.execute(query).fetchall()
+
+    logger.info(f"📊 Found {len(users)} users with recent notes")
+
+    for user_row in users:
+        user_id = str(user_row[0])
+        lang = user_row[2] or user_row[1] or "en"
+        lang_name = "Turkish" if lang == "tr" else "English"
+
+        try:
+            # Get this week's notes
+            with engine.begin() as conn:
+                notes = conn.execute(
+                    text("""
+                        SELECT title, substring(ai_insight from 1 for 200) as insight
+                        FROM notes
+                        WHERE user_id = :uid AND deleted_at IS NULL
+                        AND created_at > NOW() - INTERVAL '7 days' AND status = 'ready'
+                        ORDER BY created_at DESC LIMIT 20
+                    """),
+                    {"uid": user_id}
+                ).fetchall()
+
+            if len(notes) < 2:
+                continue
+
+            note_list = "\n".join([f"- {n[0]}: {n[1]}" for n in notes])
+            week_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
+
+            prompt = f"""Create a weekly knowledge synthesis for the week ending {week_str}. Write entirely in {lang_name}. Output ONLY markdown.
+
+Notes saved this week ({len(notes)} notes):
+{note_list}
+
+Structure:
+## Weekly Overview
+Brief summary of what was explored this week.
+
+## Key Themes
+Group the notes by topic and highlight patterns.
+
+## Cross-Topic Connections
+Any interesting connections between different topics.
+
+## Suggested Explorations
+Based on interests shown, suggest 2-3 areas to explore next.
+
+Be concise and insightful."""
+
+            result = _call_claude_cli(prompt)
+            if result.startswith("⚠️"):
+                gemini_key = os.getenv("GEMINI_API_KEY")
+                if gemini_key:
+                    result = _call_gemini_api(prompt, gemini_key)
+
+            if result and not result.startswith("⚠️"):
+                title = f"Weekly Synthesis: {week_str}" if lang != "tr" else f"Haftalık Sentez: {week_str}"
+                with engine.begin() as conn:
+                    conn.execute(
+                        text("""INSERT INTO notes (id, user_id, title, content, ai_insight, status, source_url, created_at, updated_at)
+                                VALUES (gen_random_uuid(), :uid, :title, :content, :insight, 'ready', '', NOW(), NOW())"""),
+                        {"uid": user_id, "title": title, "content": result, "insight": result}
+                    )
+                logger.info(f"📊 Weekly synthesis created for user {user_id}")
+
+        except Exception as e:
+            logger.warning(f"Weekly synthesis failed for {user_id}: {e}")
+
+    logger.info("📊 Weekly synthesis generation complete")
+    return {"users_processed": len(users)}
 
 
 @app.task(bind=True, max_retries=1)

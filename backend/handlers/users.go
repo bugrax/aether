@@ -22,12 +22,14 @@ func GetSettings(c *gin.Context) {
 		"language":    user.Language,
 		"ai_language": user.AILanguage,
 		"username":    user.Username,
+		"ai_rules":   user.AIRules,
 	})
 }
 
 type UpdateSettingsRequest struct {
 	Language   *string `json:"language,omitempty" binding:"omitempty,oneof=en tr"`
 	AILanguage *string `json:"ai_language,omitempty" binding:"omitempty,oneof=en tr"`
+	AIRules    *string `json:"ai_rules,omitempty"`
 }
 
 // UpdateSettings updates the user's settings.
@@ -50,6 +52,9 @@ func UpdateSettings(c *gin.Context) {
 	}
 	if req.AILanguage != nil {
 		updates["ai_language"] = *req.AILanguage
+	}
+	if req.AIRules != nil {
+		updates["ai_rules"] = *req.AIRules
 	}
 
 	if len(updates) == 0 {
