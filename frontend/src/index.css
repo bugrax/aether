@@ -539,6 +539,23 @@ p {
   padding: 8px;
 }
 
+/* ── Chat Page (full height) ──────────────────────── */
+
+.main-content:has(.chat-page-container) {
+  padding: 0 !important;
+  overflow: hidden !important;
+  gap: 0 !important;
+}
+
+.chat-page-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
 /* ── Dashboard ────────────────────────────────────── */
 
 .dash-page {
