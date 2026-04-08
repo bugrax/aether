@@ -96,11 +96,13 @@ Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extrac
 
 | Platform | Technology | Distribution |
 |----------|-----------|-------------|
-| iOS | Capacitor + native Share Extension | App Store |
-| Android | Capacitor + Share Intent | APK / Play Store |
-| Web | React SPA | app.aether.relayhaus.org |
+| macOS | Tauri 2.0 (8.7MB .dmg) | GitHub Releases |
+| Windows | Tauri 2.0 (MSI + EXE) | GitHub Releases |
+| Linux | Tauri 2.0 (deb + AppImage) | GitHub Releases |
+| iOS | Capacitor + native Share Extension | [TestFlight](https://testflight.apple.com/join/MtrvyubQ) |
+| Android | Capacitor + Share Intent | APK / GitHub Releases |
+| Web | React SPA | [app.aether.relayhaus.org](https://app.aether.relayhaus.org) |
 | Chrome | MV3 Extension | Chrome Web Store |
-| Landing | Static HTML | aether.relayhaus.org |
 
 ## Project Structure
 
@@ -120,6 +122,11 @@ aether/
 │   │   ├── i18n/         # en.js, tr.js translations
 │   │   ├── analytics.js  # Firebase Analytics
 │   │   └── api.js        # API client with SSE streaming
+│   ├── src-tauri/        # Tauri 2.0 desktop app (macOS/Windows/Linux)
+│   │   ├── src/          # Rust backend (menus, plugins, setup)
+│   │   ├── capabilities/ # Tauri permissions
+│   │   ├── icons/        # Desktop app icons
+│   │   └── tauri.conf.json
 │   ├── ios/App/          # Xcode project + AetherShare extension
 │   └── android/          # Android Studio project
 ├── worker/           # Python Celery worker
@@ -184,6 +191,9 @@ POST /api/v1/share → Create note (status: processing) → Redis → Celery wor
 | PATCH | `/api/v1/user/settings` | Update settings (language, AI rules) |
 | DELETE | `/api/v1/user/account` | Delete account |
 | POST | `/api/v1/user/fcm-token` | Register push token |
+| POST | `/api/v1/auth/desktop/session` | Create desktop auth session |
+| GET | `/api/v1/auth/desktop/poll` | Poll for desktop auth token |
+| POST | `/api/v1/auth/desktop/complete` | Complete desktop auth (protected) |
 | GET | `/api/v1/shared/:token` | Public shared note |
 
 ## Database Models
@@ -222,11 +232,20 @@ POST /api/v1/share → Create note (status: processing) → Redis → Celery wor
 **CI/CD:** GitHub Actions → rsync → docker compose build/restart
 
 ```bash
-# Manual deploy
+# Server deploy
 rsync -avz backend/ root@minis:/root/aether/backend/
 rsync -avz worker/ root@minis:/root/aether/worker/
 rsync -avz frontend/ root@minis:/root/aether/frontend/
 ssh root@minis "cd /root/aether && docker compose build api worker frontend && docker compose up -d api worker frontend"
+
+# Desktop release (triggers GitHub Actions)
+git tag v1.x.x && git push origin v1.x.x
+# → Builds macOS (ARM + Intel), Linux (deb + AppImage), Windows (MSI + EXE)
+# → Creates GitHub Release with all artifacts
+
+# Local desktop build
+cd frontend && npm run build && npm run build:desktop
+# → Output: src-tauri/target/release/bundle/dmg/Aether_*.dmg
 ```
 
 ## License

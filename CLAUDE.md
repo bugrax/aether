@@ -234,6 +234,51 @@ background-size: 20px 20px;
 mask-image: radial-gradient(circle, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 40%, rgba(0,0,0,0) 70%);
 ```
 
+## Desktop App (Tauri 2.0)
+
+### Architecture
+- **Framework**: Tauri 2.0 with Rust backend + WKWebView (macOS) / WebView2 (Windows) / WebKitGTK (Linux)
+- **Binary size**: ~8.7MB .dmg (vs ~150MB if Electron)
+- **Config**: `frontend/src-tauri/tauri.conf.json`
+- **Rust code**: `frontend/src-tauri/src/lib.rs` (menus, plugins, setup)
+- **Platform detection**: `frontend/src/lib/platform.js` — `window.__TAURI_INTERNALS__` check
+
+### Desktop Auth Flow
+- **WKWebView cannot do `signInWithPopup` or `signInWithRedirect`** — Firebase auth is impossible in Tauri WebView
+- **Solution**: Browser-based OAuth with session polling:
+  1. Desktop app creates session via `POST /api/v1/auth/desktop/session`
+  2. Opens system browser at `app.aether.relayhaus.org/desktop-auth?session=XXX`
+  3. User logs in on web → web app sends token via `POST /api/v1/auth/desktop/complete`
+  4. Desktop app polls `GET /api/v1/auth/desktop/poll?session_id=XXX` every 2s → gets token
+- **Sessions**: In-memory (no DB), expire after 10 minutes, auto-cleanup
+
+### Building Desktop
+```bash
+cd frontend
+npm run build                # Vite build
+npm run build:desktop        # Tauri build → .dmg / .msi / .deb / .AppImage
+```
+
+### Releasing Desktop
+```bash
+git tag v1.x.x && git push origin v1.x.x
+# → GitHub Actions builds macOS (ARM + Intel), Linux, Windows
+# → Creates GitHub Release with all artifacts
+```
+
+### CORS
+- `tauri://localhost` must be in ALLOWED_ORIGINS for API access from desktop app
+
+### Desktop-Specific CSS
+- `body.platform-desktop` class set in `main.jsx`
+- Traffic lights inset: `.sidebar-desktop { padding-top: +28px }`
+- Draggable header: `-webkit-app-region: drag`
+
+## Important Rules
+
+### ALWAYS keep README.md up to date
+When adding new features, endpoints, pages, or making architectural changes, update README.md to reflect the current state. README.md is the public face of the project — it must accurately describe what exists.
+
 ## Common Pitfalls — DO NOT REPEAT
 
 1. **Never use `.replace("m.", "")` on domains** — breaks instagram.com
@@ -246,3 +291,7 @@ mask-image: radial-gradient(circle, rgba(0,0,0,1) 0%, rgba(0,0,0,0.4) 40%, rgba(
 8. **`navigator.share`/`navigator.clipboard` don't work in Capacitor** — use `@capacitor/share` plugin
 9. **Firebase `getRedirectResult()` hangs in Capacitor** — don't await it before `onAuthStateChanged`
 10. **Token refresh is critical** — Firebase tokens expire in 1 hour, must auto-refresh
+11. **Firebase `signInWithPopup` does NOT work in Tauri WKWebView** — use browser-based auth flow with session polling
+12. **Tauri `tauri://localhost` origin must be in CORS** — or all API calls fail silently
+13. **`npm run build:desktop` does NOT rebuild Vite** — run `npm run build` first, or use `rm -rf dist && npm run build && npm run build:desktop`
+14. **Thumbnails stored in MinIO** (`s3.relayhaus.org/aether-thumbnails/`) — not base64 in DB. Old base64 thumbnails migrated.
