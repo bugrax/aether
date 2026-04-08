@@ -1,4 +1,4 @@
-name: Release Desktop App
+name: Release All Platforms
 
 on:
   push:
@@ -124,6 +124,62 @@ jobs:
             frontend/src-tauri/target/release/bundle/deb/*.deb
             frontend/src-tauri/target/release/bundle/appimage/*.AppImage
 
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: https://app.aether.relayhaus.org/api/v1
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
+        run: npm run build
+
+      - name: Sync Capacitor Android
+        working-directory: frontend
+        run: npx cap sync android
+
+      - name: Decode keystore
+        working-directory: frontend/android
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > app/aether-release.keystore
+
+      - name: Build APK
+        working-directory: frontend/android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build
+          path: frontend/android/app/build/outputs/apk/release/app-release.apk
+
   build-windows:
     name: Build Windows (x86_64)
     runs-on: windows-latest
@@ -176,7 +232,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [build-macos, build-linux, build-windows]
+    needs: [build-macos, build-linux, build-windows, build-android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -213,6 +269,7 @@ jobs:
             - **Linux (AppImage)**: `aether-desktop_*_amd64.AppImage`
             - **Windows (MSI)**: `Aether_*_x64-setup.msi`
             - **Windows (EXE)**: `Aether_*_x64-setup.exe`
+            - **Android**: `app-release.apk`
 
             ### Other Platforms
             - **iOS**: [TestFlight](https://testflight.apple.com/join/MtrvyubQ)
@@ -225,5 +282,6 @@ jobs:
             artifacts/**/*.AppImage
             artifacts/**/*.msi
             artifacts/**/*.exe
+            artifacts/**/*.apk
           draft: false
           prerelease: false
