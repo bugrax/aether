@@ -49,7 +49,7 @@ func ListNotes(c *gin.Context) {
 
 	var notes []models.Note
 	query := database.DB.Where("user_id = ?", user.ID).
-		Select("id, user_id, title, source_url, thumbnail_url, status, share_token, created_at, updated_at, deleted_at").
+		Select("id, user_id, title, source_url, thumbnail_url, status, share_token, created_at, updated_at, deleted_at, LEFT(ai_insight, 200) as ai_insight").
 		Preload("Labels").
 		Order("created_at DESC")
 

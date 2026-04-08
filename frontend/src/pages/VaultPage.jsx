@@ -302,20 +302,33 @@ export default function VaultPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Infinite scroll observer
+  // Refs for scroll handler to avoid stale closures
+  const hasMoreRef = useRef(hasMore);
+  const loadingMoreRef = useRef(loadingMore);
+  const isSearchActiveRef = useRef(isSearchActive);
+  const loadMoreRef = useRef(loadMoreNotes);
+  hasMoreRef.current = hasMore;
+  loadingMoreRef.current = loadingMore;
+  isSearchActiveRef.current = isSearchActive;
+  loadMoreRef.current = loadMoreNotes;
+
+  // Infinite scroll — attach after loading completes
   useEffect(() => {
-    if (!sentinelRef.current) return;
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore && !isSearchActive) {
-          loadMoreNotes();
-        }
-      },
-      { threshold: 0.1 }
-    );
-    observerRef.current.observe(sentinelRef.current);
-    return () => observerRef.current?.disconnect();
-  }, [hasMore, loadingMore, isSearchActive]);
+    if (loading) return;
+    const el = vaultRef.current;
+    if (!el) return;
+
+    const onScroll = () => {
+      if (!hasMoreRef.current || loadingMoreRef.current || isSearchActiveRef.current) return;
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      if (scrollHeight - scrollTop - clientHeight < 400) {
+        loadMoreRef.current();
+      }
+    };
+
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [loading]);
 
   // Pull-to-refresh
   useEffect(() => {
