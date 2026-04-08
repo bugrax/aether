@@ -165,8 +165,7 @@ jobs:
         run: npx cap sync android
 
       - name: Decode keystore
-        working-directory: frontend/android
-        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > app/aether-release.keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | tr -d '\n\r ' | base64 --decode > aether-release.keystore
 
       - name: Build APK
         working-directory: frontend/android
