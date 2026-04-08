@@ -362,20 +362,32 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
     <>
       {/* ── Desktop Sidebar ─────────────────────────── */}
       <aside className="sidebar sidebar-desktop">
-        <div className="sidebar-logo">
-          Aether
-          {isDevMode && (
-            <span style={{
-              fontSize: '0.5rem',
-              color: 'var(--secondary)',
-              display: 'block',
-              fontWeight: 400,
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-            }}>
-              Dev Mode
-            </span>
-          )}
+        <div className="sidebar-logo" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>
+            Aether
+            {isDevMode && (
+              <span style={{
+                fontSize: '0.5rem',
+                color: 'var(--secondary)',
+                display: 'block',
+                fontWeight: 400,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+              }}>
+                Dev Mode
+              </span>
+            )}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button className="btn-ghost" onClick={() => navigate('/settings')} title={t('settings')} style={{ padding: 4, opacity: 0.5 }}>
+              <GearIcon />
+            </button>
+            {user && (
+              <button className="btn-ghost" onClick={handleLogout} title={t('sign_out')} style={{ padding: 4, opacity: 0.5 }}>
+                <LogoutIcon />
+              </button>
+            )}
+          </div>
         </div>
 
         <nav className="sidebar-nav">
@@ -481,29 +493,7 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
               <span className="label-count">{labelCounts[label.id] || 0}</span>
             </button>
           ))}
-          <NavLink
-            to="/settings"
-            className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-            style={{ fontSize: '0.75rem', color: 'var(--outline)', marginTop: 'var(--space-2)' }}
-          >
-            <span className="icon"><GearIcon /></span>
-            {t('settings')}
-          </NavLink>
         </div>
-
-        {user && (
-          <div className="sidebar-user">
-            <div className="sidebar-user-info">
-              <span className="sidebar-user-name">
-                {user.displayName || user.email}
-              </span>
-              <span className="sidebar-user-email">{user.email}</span>
-            </div>
-            <button className="btn-ghost" onClick={handleLogout} title={t('sign_out')}>
-              <LogoutIcon />
-            </button>
-          </div>
-        )}
       </aside>
 
       {/* ── Mobile Top Header ───────────────────────── */}
