@@ -143,7 +143,7 @@ export function AuthProvider({ children }) {
         return;
       }
 
-      // Web: use Firebase JS SDK onAuthStateChanged
+      // Web + Desktop: use Firebase JS SDK onAuthStateChanged
       unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         clearTimeout(loadingTimeout);
         try {

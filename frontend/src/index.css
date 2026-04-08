@@ -3548,3 +3548,23 @@ p {
     padding: var(--space-4) var(--space-5);
   }
 }
+
+/* ── Desktop (Tauri) ───────────────────────────────── */
+body.platform-desktop .sidebar-desktop {
+  padding-top: calc(var(--space-5) + 28px);
+}
+
+body.platform-desktop .sidebar-logo {
+  -webkit-app-region: drag;
+}
+
+body.platform-desktop .page-header {
+  -webkit-app-region: drag;
+}
+
+body.platform-desktop .page-header button,
+body.platform-desktop .page-header input,
+body.platform-desktop .page-header select,
+body.platform-desktop .page-header a {
+  -webkit-app-region: no-drag;
+}

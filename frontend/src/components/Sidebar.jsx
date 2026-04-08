@@ -240,21 +240,27 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
 
   // Send native local notification
   const sendNativeNotification = async (title, body) => {
-    if (!Capacitor.isNativePlatform()) return;
-    try {
-      const { LocalNotifications } = await import('@capacitor/local-notifications');
-      const perm = await LocalNotifications.requestPermissions();
-      if (perm.display !== 'granted') return;
-      await LocalNotifications.schedule({
-        notifications: [{
-          title,
-          body,
-          id: Math.floor(Math.random() * 100000),
-          schedule: { at: new Date(Date.now() + 500) },
-          sound: 'default',
-        }],
-      });
-    } catch {}
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { LocalNotifications } = await import('@capacitor/local-notifications');
+        const perm = await LocalNotifications.requestPermissions();
+        if (perm.display !== 'granted') return;
+        await LocalNotifications.schedule({
+          notifications: [{
+            title,
+            body,
+            id: Math.floor(Math.random() * 100000),
+            schedule: { at: new Date(Date.now() + 500) },
+            sound: 'default',
+          }],
+        });
+      } catch {}
+    } else if (window.__TAURI_INTERNALS__) {
+      try {
+        const { sendDesktopNotification } = await import('../lib/desktop-notifications');
+        await sendDesktopNotification(title, body);
+      } catch {}
+    }
   };
 
   // Poll for note status changes → generate notifications

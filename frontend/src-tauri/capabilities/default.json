@@ -1,0 +1,14 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for Aether desktop",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
+    "shell:allow-open",
+    "core:webview:allow-create-webview-window"
+  ]
+}

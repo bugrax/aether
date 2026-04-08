@@ -55,6 +55,8 @@ func main() {
 		"http://localhost:3000",
 		"capacitor://localhost",
 		"https://localhost",
+		"tauri://localhost",
+		"http://tauri.localhost",
 	}
 	if extraOrigins := os.Getenv("ALLOWED_ORIGINS"); extraOrigins != "" {
 		for _, o := range strings.Split(extraOrigins, ",") {
@@ -96,6 +98,10 @@ func main() {
 	// ── Public Routes (No Auth) ───────────────────────
 	r.GET("/api/v1/shared/:token", handlers.GetSharedNote)
 	r.GET("/s/:token", handlers.GetSharedNoteOG)
+
+	// Desktop Auth (session create + poll are public, complete is protected)
+	r.POST("/api/v1/auth/desktop/session", handlers.CreateDesktopSession)
+	r.GET("/api/v1/auth/desktop/poll", handlers.PollDesktopSession)
 
 	// ── API v1 Routes (Protected) ─────────────────────
 	v1 := r.Group("/api/v1")
@@ -145,6 +151,9 @@ func main() {
 
 		// Semantic Search (pgvector)
 		v1.GET("/search", handlers.SemanticSearch)
+
+		// Desktop Auth (complete — requires auth)
+		v1.POST("/auth/desktop/complete", handlers.CompleteDesktopSession)
 
 		// Entities
 		v1.GET("/entities", handlers.ListEntities)

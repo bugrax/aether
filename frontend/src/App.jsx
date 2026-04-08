@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -20,6 +20,7 @@ import SynthesisListPage from './pages/SynthesisListPage';
 import EntitiesPage from './pages/EntitiesPage';
 import EntityDetailPage from './pages/EntityDetailPage';
 import SharedNotePage from './pages/SharedNotePage';
+import DesktopAuthPage from './pages/DesktopAuthPage';
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -69,6 +70,14 @@ function ProtectedLayout() {
 function AppRoutes() {
   const { user, loading } = useAuth();
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem('aether_onboarded') === '1');
+  const nav = useNavigate();
+
+  // Tauri desktop menu navigation bridge
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return;
+    window.__TAURI_NAVIGATE__ = (route) => nav(route);
+    return () => { delete window.__TAURI_NAVIGATE__; };
+  }, [nav]);
 
   // Show onboarding for users who haven't seen it yet
   if (!onboarded && !loading) {
@@ -92,6 +101,7 @@ function AppRoutes() {
         }
       />
       <Route path="/shared/:token" element={<SharedNotePage />} />
+      <Route path="/desktop-auth" element={<DesktopAuthPage />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/vault" element={<DashboardPage />} />
         <Route path="/vault/list" element={<VaultPage />} />
