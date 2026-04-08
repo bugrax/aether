@@ -3,6 +3,9 @@
 *.pem
 *.key
 firebase-service-account.json
+*.keystore
+google-services.json
+GoogleService-Info.plist
 
 # ── Go ─────────────────────────────────────────
 /backend/bin/
