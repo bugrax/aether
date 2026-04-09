@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedoc/tauri-schema/main/tauri-conf.json",
   "productName": "Aether",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "identifier": "com.bugra.aether.desktop",
   "build": {
     "devUrl": "http://localhost:5173",
