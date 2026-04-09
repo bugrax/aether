@@ -3580,3 +3580,203 @@ body.platform-desktop .page-header select,
 body.platform-desktop .page-header a {
   -webkit-app-region: no-drag;
 }
+
+/* ── Mobile Vault Switcher ─────────────────────────── */
+.mobile-vault-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 6px 10px;
+  margin: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  color: var(--on-surface);
+  font-family: inherit;
+  max-width: 60%;
+  border-radius: 10px;
+  transition: background 120ms ease;
+}
+
+.mobile-vault-button:active {
+  background: var(--surface-container-high);
+}
+
+.mobile-vault-button-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.mobile-vault-button-name {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.mobile-vault-button svg {
+  flex-shrink: 0;
+  color: var(--on-surface-variant);
+}
+
+.mobile-vault-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 2000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 180ms ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.mobile-vault-sheet {
+  width: 100%;
+  max-width: 640px;
+  background: var(--surface-container);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  padding: 10px 16px calc(24px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.4);
+  animation: slideUp 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.mobile-vault-sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: var(--on-surface-variant);
+  opacity: 0.4;
+  border-radius: 2px;
+  margin: 0 auto 14px;
+}
+
+.mobile-vault-sheet-title {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--on-surface);
+  padding: 0 6px 12px;
+}
+
+.mobile-vault-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  flex: 1;
+  margin-bottom: 10px;
+}
+
+.mobile-vault-sheet-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--on-surface-variant);
+  font-size: 0.9rem;
+}
+
+.mobile-vault-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  color: var(--on-surface);
+  font-family: inherit;
+  text-align: left;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.mobile-vault-sheet-item:active {
+  background: var(--surface-container-high);
+}
+
+.mobile-vault-sheet-item.active {
+  background: var(--surface-container-high);
+  border-color: var(--primary);
+}
+
+.mobile-vault-sheet-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 36px;
+  text-align: center;
+}
+
+.mobile-vault-sheet-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-vault-sheet-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-vault-sheet-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+  padding: 2px 8px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mobile-vault-sheet-manage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 14px;
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.mobile-vault-sheet-manage:active {
+  background: var(--surface-container-highest);
+}

@@ -34,10 +34,21 @@ func Connect(cfg *config.Config) {
 	// Enable uuid-ossp extension for gen_random_uuid()
 	DB.Exec("CREATE EXTENSION IF NOT EXISTS \"pgcrypto\"")
 
-	// Auto-migrate all models
+	// Phase 1: Auto-migrate user and vault tables first
+	if err := DB.AutoMigrate(&models.User{}, &models.Vault{}); err != nil {
+		log.Fatalf("❌ Failed to migrate users/vaults: %v", err)
+	}
+
+	// Phase 2: Add vault_id columns as nullable to existing tables
+	// (needed before GORM's strict AutoMigrate tries to add NOT NULL)
+	preMigrateVaultID()
+
+	// Phase 3: Backfill — create default vaults and populate vault_id
+	// This must happen before AutoMigrate tries to enforce NOT NULL
+	backfillDefaultVaults()
+
+	// Phase 4: Auto-migrate remaining models (NOT NULL will succeed now)
 	err = DB.AutoMigrate(
-		&models.User{},
-		&models.Vault{},
 		&models.Note{},
 		&models.NoteRevision{},
 		&models.Label{},
@@ -53,10 +64,35 @@ func Connect(cfg *config.Config) {
 		log.Fatalf("❌ Failed to run migrations: %v", err)
 	}
 
-	// Backfill default vault for users without one
-	backfillDefaultVaults()
-
 	log.Println("✅ Database migrations completed")
+}
+
+// preMigrateVaultID ensures the vault_id column exists as nullable on all
+// tables before GORM AutoMigrate tries to add it as NOT NULL. This allows
+// the backfill step to populate values before we later enforce NOT NULL.
+func preMigrateVaultID() {
+	// Create vaults table first if it doesn't exist
+	DB.Exec(`
+		CREATE TABLE IF NOT EXISTS vaults (
+			id uuid NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
+			user_id uuid NOT NULL,
+			name varchar(100) NOT NULL,
+			icon varchar(10),
+			color varchar(7),
+			is_default boolean DEFAULT false,
+			created_at timestamptz,
+			updated_at timestamptz,
+			deleted_at timestamptz
+		)
+	`)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_vaults_user_id ON vaults(user_id)`)
+	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_vaults_deleted_at ON vaults(deleted_at)`)
+
+	// Add vault_id column to all scoped tables (nullable for now)
+	tables := []string{"notes", "labels", "entities", "note_entities", "note_relations", "synthesis_pages", "activity_logs", "chat_messages"}
+	for _, table := range tables {
+		DB.Exec("ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS vault_id uuid")
+	}
 }
 
 // backfillDefaultVaults creates a default "My Vault" for every user that

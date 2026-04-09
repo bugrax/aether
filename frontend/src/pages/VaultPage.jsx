@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useVault } from '../contexts/VaultContext';
 import { notesAPI } from '../api';
 import { stripHTML } from '../components/editor/editorUtils';
 import { trackViewModeChange, trackPullToRefresh, trackNoteOpen, trackScreenView } from '../analytics';
@@ -252,6 +253,7 @@ export default function VaultPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { t } = useLanguage();
+  const { currentVaultId } = useVault();
   const observerRef = useRef(null);
   const sentinelRef = useRef(null);
   const offsetRef = useRef(0);
@@ -269,7 +271,13 @@ export default function VaultPage() {
     setIsSearchActive(false);
     setSearching(false);
     loadNotes(true);
-  }, [searchParams]);
+  }, [searchParams, currentVaultId]);
+
+  useEffect(() => {
+    const onVaultChange = () => loadNotes(true);
+    window.addEventListener('vault-changed', onVaultChange);
+    return () => window.removeEventListener('vault-changed', onVaultChange);
+  }, []);
 
   // Refresh when app comes back to foreground
   useEffect(() => {

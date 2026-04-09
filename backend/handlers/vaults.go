@@ -14,6 +14,7 @@ import (
 // ── Vault Handlers ────────────────────────────────────
 
 // ListVaults returns all vaults for the current user.
+// Ensures at least one default vault exists — creates "My Vault" if the user has none.
 func ListVaults(c *gin.Context) {
 	user := middleware.GetUser(c)
 	if user == nil {
@@ -23,6 +24,21 @@ func ListVaults(c *gin.Context) {
 
 	var vaults []models.Vault
 	database.DB.Where("user_id = ?", user.ID).Order("is_default DESC, created_at ASC").Find(&vaults)
+
+	if len(vaults) == 0 {
+		defaultVault := models.Vault{
+			UserID:    user.ID,
+			Name:      "My Vault",
+			Icon:      "🗂️",
+			Color:     "#b79fff",
+			IsDefault: true,
+		}
+		if err := database.DB.Create(&defaultVault).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create default vault"})
+			return
+		}
+		vaults = []models.Vault{defaultVault}
+	}
 
 	c.JSON(http.StatusOK, gin.H{"vaults": vaults})
 }

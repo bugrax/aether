@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useVault } from '../contexts/VaultContext';
 import { notesAPI, synthesisAPI, activityAPI, entitiesAPI } from '../api';
 import { trackNoteOpen, trackLabelFilter, trackScreenView } from '../analytics';
 
@@ -14,6 +15,7 @@ function translateLabel(name, t) {
 export default function DashboardPage() {
   const { user } = useAuth();
   const { t, lang } = useLanguage();
+  const { currentVaultId } = useVault();
   const navigate = useNavigate();
   const [stats, setStats] = useState({ total: 0, thisWeek: 0, processing: 0 });
   const [topLabels, setTopLabels] = useState([]);
@@ -26,6 +28,12 @@ export default function DashboardPage() {
   useEffect(() => {
     trackScreenView('Dashboard');
     loadDashboard();
+  }, [currentVaultId]);
+
+  useEffect(() => {
+    const onVaultChange = () => loadDashboard();
+    window.addEventListener('vault-changed', onVaultChange);
+    return () => window.removeEventListener('vault-changed', onVaultChange);
   }, []);
 
   async function loadDashboard() {
