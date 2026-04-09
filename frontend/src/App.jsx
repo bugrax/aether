@@ -21,6 +21,7 @@ import EntitiesPage from './pages/EntitiesPage';
 import EntityDetailPage from './pages/EntityDetailPage';
 import SharedNotePage from './pages/SharedNotePage';
 import DesktopAuthPage from './pages/DesktopAuthPage';
+import ActivityPage from './pages/ActivityPage';
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -106,6 +107,7 @@ function AppRoutes() {
         <Route path="/vault" element={<DashboardPage />} />
         <Route path="/vault/list" element={<VaultPage />} />
         <Route path="/vault/synthesis" element={<SynthesisListPage />} />
+        <Route path="/activity" element={<ActivityPage />} />
         <Route path="/vault/synthesis/:id" element={<SynthesisViewPage />} />
         <Route path="/vault/:id" element={<EditorPage />} />
         <Route path="/share" element={<SharePage />} />
