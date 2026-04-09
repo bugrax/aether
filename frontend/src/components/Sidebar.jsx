@@ -337,20 +337,16 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
     navigate(`/vault/${notif.noteId}`);
   };
 
-  // Fetch note counts per label (only when user is authenticated)
+  // Fetch note counts per label from stats endpoint (DB-accurate, not client-side)
   useEffect(() => {
     if (!user) return;
     async function fetchCounts() {
       try {
-        const data = await notesAPI.list({ limit: 20, offset: 0 });
-        const notes = data.notes || [];
-        setTotalCount(data.total || notes.length);
-
+        const data = await notesAPI.stats();
+        setTotalCount(data.total || 0);
         const counts = {};
-        for (const note of notes) {
-          for (const label of (note.labels || [])) {
-            counts[label.id] = (counts[label.id] || 0) + 1;
-          }
+        for (const lc of (data.label_counts || [])) {
+          counts[lc.label_id] = lc.count;
         }
         setLabelCounts(counts);
       } catch {
@@ -358,6 +354,10 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
       }
     }
     fetchCounts();
+    // Refresh counts when vault changes
+    const onVaultChange = () => fetchCounts();
+    window.addEventListener('vault-changed', onVaultChange);
+    return () => window.removeEventListener('vault-changed', onVaultChange);
   }, [user, labels]);
 
   const handleLogout = async () => {
