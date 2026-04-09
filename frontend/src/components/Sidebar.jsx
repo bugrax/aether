@@ -390,6 +390,10 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
             )}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button className="btn-ghost" onClick={() => { setShowNotifications(!showNotifications); if (!showNotifications) markAllRead(); }} title={lang === 'tr' ? 'Bildirimler' : 'Notifications'} style={{ padding: 4, opacity: 0.5, position: 'relative' }}>
+              <BellIcon />
+              {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
+            </button>
             <button className="btn-ghost" onClick={() => navigate('/settings')} title={t('settings')} style={{ padding: 4, opacity: 0.5 }}>
               <GearIcon />
             </button>
@@ -471,7 +475,8 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
           >
             <span className="icon">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
               </svg>
             </span>
             Activity

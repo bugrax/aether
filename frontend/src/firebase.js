@@ -97,15 +97,17 @@ async function desktopAuthViaBrowser() {
         const data = await resp.json();
         if (data.status === 'ready' && data.token) {
           clearInterval(poll);
-          // Sign in with custom token — actually we just need to set the token
-          // and create a user-like object
-          const { signInWithCustomToken } = await import('firebase/auth');
-          // We can't use custom token without server-side minting.
-          // Instead, store the ID token directly and create a user object.
+          // Decode JWT to extract user info (without verifying signature)
+          let uid = 'desktop-user', email = '', displayName = '', photoURL = '';
+          try {
+            const payload = JSON.parse(atob(data.token.split('.')[1]));
+            uid = payload.user_id || payload.sub || uid;
+            email = payload.email || '';
+            displayName = payload.name || '';
+            photoURL = payload.picture || '';
+          } catch {}
           resolve({
-            uid: 'desktop-user',
-            email: '',
-            displayName: '',
+            uid, email, displayName, photoURL,
             _desktopToken: data.token,
             getIdToken: async () => data.token,
           });

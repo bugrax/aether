@@ -104,6 +104,26 @@ export function AuthProvider({ children }) {
       return;
     }
 
+    // Desktop: restore from localStorage if available
+    if (window.__TAURI_INTERNALS__) {
+      try {
+        const stored = localStorage.getItem('aether_desktop_user');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed._desktopToken) {
+            setUser({
+              ...parsed,
+              getIdToken: async () => parsed._desktopToken,
+            });
+            setAuthToken(parsed._desktopToken);
+            broadcastToken(parsed._desktopToken);
+          }
+        }
+      } catch {}
+      setLoading(false);
+      return;
+    }
+
     let unsubscribe;
     let loadingTimeout = setTimeout(() => {
       console.warn('Auth loading timeout — forcing load complete');
@@ -188,18 +208,33 @@ export function AuthProvider({ children }) {
     const signIn = provider === 'apple' ? firebase.signInWithApple : firebase.signInWithGoogle;
     const firebaseUser = await signIn();
     if (firebaseUser) {
-      const token = firebaseUser._nativeToken || await firebaseUser.getIdToken();
+      const token = firebaseUser._nativeToken || firebaseUser._desktopToken || await firebaseUser.getIdToken();
       setUser(firebaseUser);
       setAuthToken(token);
       broadcastToken(token);
+      // Persist desktop user
+      if (window.__TAURI_INTERNALS__ && firebaseUser._desktopToken) {
+        try {
+          localStorage.setItem('aether_desktop_user', JSON.stringify({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName,
+            photoURL: firebaseUser.photoURL,
+            _desktopToken: firebaseUser._desktopToken,
+          }));
+        } catch {}
+      }
     }
     return firebaseUser;
   };
 
   const logout = async () => {
-    if (!isDevMode) {
+    if (!isDevMode && !window.__TAURI_INTERNALS__) {
       const { signOut } = await import('../firebase');
       await signOut();
+    }
+    if (window.__TAURI_INTERNALS__) {
+      try { localStorage.removeItem('aether_desktop_user'); } catch {}
     }
     setAuthToken(null);
     setUser(null);

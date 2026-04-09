@@ -2263,13 +2263,25 @@ p {
 }
 
 .notif-page-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 50px 1fr 50px;
   align-items: center;
-  justify-content: space-between;
   padding: var(--space-3) var(--space-4);
   padding-top: max(var(--space-3), calc(env(safe-area-inset-top) + 8px));
   flex-shrink: 0;
   border-bottom: 1px solid var(--outline-variant);
+}
+
+.notif-page-header .notif-page-title {
+  text-align: center;
+}
+
+.notif-page-header .notif-clear-btn {
+  text-align: right;
+}
+
+body.platform-desktop .notif-page-header {
+  padding-top: calc(var(--space-3) + 28px);
 }
 
 .notif-back-btn {

@@ -1,6 +1,6 @@
 [package]
 name = "aether-desktop"
-version = "1.4.1"
+version = "1.4.2"
 description = "Aether — Personal Knowledge Engine"
 authors = ["Bugra Cakmak"]
 edition = "2021"
