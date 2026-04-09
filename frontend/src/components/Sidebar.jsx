@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { notesAPI } from '../api';
 import AetherChat from './AetherChat';
+import VaultSwitcher from './VaultSwitcher';
 import { trackSignOut, trackAetherChatOpen, trackNotificationClick, trackLabelFilter } from '../analytics';
 import { Capacitor } from '@capacitor/core';
 
@@ -404,6 +405,8 @@ export default function Sidebar({ labels = [], onLabelsChanged }) {
             )}
           </div>
         </div>
+
+        <VaultSwitcher />
 
         <nav className="sidebar-nav">
           <NavLink

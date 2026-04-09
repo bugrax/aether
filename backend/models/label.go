@@ -13,6 +13,7 @@ import (
 type Label struct {
 	ID        uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	UserID    uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
+	VaultID   uuid.UUID      `gorm:"type:uuid;not null;index" json:"vault_id"`
 	Name      string         `gorm:"size:100;not null" json:"name"`
 	Color     string         `gorm:"size:7" json:"color"` // Hex color e.g. #8B5CF6
 	CreatedAt time.Time      `json:"created_at"`

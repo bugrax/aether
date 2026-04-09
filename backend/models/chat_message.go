@@ -10,6 +10,7 @@ import (
 type ChatMessage struct {
 	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	UserID    uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
+	VaultID   uuid.UUID `gorm:"type:uuid;not null;index" json:"vault_id"`
 	SessionID uuid.UUID `gorm:"type:uuid;not null;index" json:"session_id"`
 	Role      string    `gorm:"size:20;not null" json:"role"` // "user" or "assistant"
 	Content   string    `gorm:"type:text;not null" json:"content"`

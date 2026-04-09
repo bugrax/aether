@@ -25,14 +25,14 @@ type UpdateLabelRequest struct {
 
 // ListLabels returns all labels for the authenticated user.
 func ListLabels(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	var labels []models.Label
-	database.DB.Where("user_id = ?", user.ID).Order("name ASC").Find(&labels)
+	database.DB.Where("vault_id = ?", vault.ID).Order("name ASC").Find(&labels)
 
 	c.JSON(http.StatusOK, gin.H{"labels": labels})
 }
@@ -40,6 +40,7 @@ func ListLabels(c *gin.Context) {
 // CreateLabel creates a new label.
 func CreateLabel(c *gin.Context) {
 	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	var req CreateLabelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -47,9 +48,10 @@ func CreateLabel(c *gin.Context) {
 	}
 
 	label := models.Label{
-		UserID: user.ID,
-		Name:   req.Name,
-		Color:  req.Color,
+		UserID:  user.ID,
+		VaultID: vault.ID,
+		Name:    req.Name,
+		Color:   req.Color,
 	}
 
 	if err := database.DB.Create(&label).Error; err != nil {
@@ -62,11 +64,11 @@ func CreateLabel(c *gin.Context) {
 
 // UpdateLabel updates a label.
 func UpdateLabel(c *gin.Context) {
-	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	labelID := c.Param("id")
 
 	var label models.Label
-	if err := database.DB.Where("id = ? AND user_id = ?", labelID, user.ID).
+	if err := database.DB.Where("id = ? AND vault_id = ?", labelID, vault.ID).
 		First(&label).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Label not found"})
 		return
@@ -91,10 +93,10 @@ func UpdateLabel(c *gin.Context) {
 
 // DeleteLabel soft-deletes a label.
 func DeleteLabel(c *gin.Context) {
-	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	labelID := c.Param("id")
 
-	result := database.DB.Where("id = ? AND user_id = ?", labelID, user.ID).Delete(&models.Label{})
+	result := database.DB.Where("id = ? AND vault_id = ?", labelID, vault.ID).Delete(&models.Label{})
 	if result.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Label not found"})
 		return

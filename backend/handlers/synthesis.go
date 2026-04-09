@@ -11,14 +11,14 @@ import (
 
 // ListSynthesisPages returns all synthesis pages for the user.
 func ListSynthesisPages(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	var pages []models.SynthesisPage
-	database.DB.Where("user_id = ?", user.ID).
+	database.DB.Where("vault_id = ?", vault.ID).
 		Order("updated_at DESC").
 		Find(&pages)
 
@@ -27,15 +27,15 @@ func ListSynthesisPages(c *gin.Context) {
 
 // GetSynthesisPage returns a single synthesis page with contributing notes.
 func GetSynthesisPage(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	pageID := c.Param("id")
 	var page models.SynthesisPage
-	if err := database.DB.Where("id = ? AND user_id = ?", pageID, user.ID).
+	if err := database.DB.Where("id = ? AND vault_id = ?", pageID, vault.ID).
 		First(&page).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Synthesis page not found"})
 		return

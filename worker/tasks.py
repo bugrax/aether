@@ -1106,7 +1106,7 @@ SOURCE_LABEL_MAP = {
 }
 
 
-def auto_label_source(note_id: str, url: str):
+def auto_label_source(note_id: str, url: str, vault_id: str = None):
     """Auto-create and assign a label based on the source URL domain."""
     from urllib.parse import urlparse
     try:
@@ -1130,30 +1130,32 @@ def auto_label_source(note_id: str, url: str):
             # Use domain as label name for unknown sources
             label_name = domain.split(".")[0].capitalize()
 
-        # Get the user_id for this note
+        # Get the user_id and vault_id for this note
         with engine.begin() as conn:
             row = conn.execute(
-                text("SELECT user_id FROM notes WHERE id = :nid"),
+                text("SELECT user_id, vault_id FROM notes WHERE id = :nid"),
                 {"nid": note_id}
             ).fetchone()
             if not row:
                 return
             user_id = str(row[0])
+            if not vault_id:
+                vault_id = str(row[1])
 
-        # Find or create the label
+        # Find or create the label (scoped to vault)
         with engine.begin() as conn:
             existing = conn.execute(
-                text("SELECT id FROM labels WHERE user_id = :uid AND name = :name AND deleted_at IS NULL"),
-                {"uid": user_id, "name": label_name}
+                text("SELECT id FROM labels WHERE vault_id = :vid AND name = :name AND deleted_at IS NULL"),
+                {"vid": vault_id, "name": label_name}
             ).fetchone()
 
             if existing:
                 label_id = str(existing[0])
             else:
                 result = conn.execute(
-                    text("INSERT INTO labels (id, user_id, name, color, created_at, updated_at) "
-                         "VALUES (gen_random_uuid(), :uid, :name, :color, NOW(), NOW()) RETURNING id"),
-                    {"uid": user_id, "name": label_name, "color": label_color}
+                    text("INSERT INTO labels (id, user_id, vault_id, name, color, created_at, updated_at) "
+                         "VALUES (gen_random_uuid(), :uid, :vid, :name, :color, NOW(), NOW()) RETURNING id"),
+                    {"uid": user_id, "vid": vault_id, "name": label_name, "color": label_color}
                 )
                 label_id = str(result.fetchone()[0])
                 logger.info(f"🏷️ Created label '{label_name}' ({label_color})")
@@ -1229,21 +1231,23 @@ TOPIC_LABEL_COLORS = {
 }
 
 
-def auto_label_topics(note_id: str, title: str, ai_insight: str, language: str = "en"):
+def auto_label_topics(note_id: str, title: str, ai_insight: str, language: str = "en", vault_id: str = None):
     """Use LLM to extract topic labels from content and assign them."""
     if not ai_insight or len(ai_insight) < 50:
         return
 
     try:
-        # Get user_id for this note
+        # Get user_id and vault_id for this note
         with engine.begin() as conn:
             row = conn.execute(
-                text("SELECT user_id FROM notes WHERE id = :nid"),
+                text("SELECT user_id, vault_id FROM notes WHERE id = :nid"),
                 {"nid": note_id}
             ).fetchone()
             if not row:
                 return
             user_id = str(row[0])
+            if not vault_id:
+                vault_id = str(row[1])
 
         if language == "tr":
             label_examples = "teknoloji, sinema, ekonomi, sanat, müzik, spor, sağlık, eğitim, bilim, siyaset, tarih, felsefe, yapay zeka, programlama, tasarım, psikoloji, edebiyat, yemek, seyahat, oyun, moda, iş, girişim"
@@ -1286,20 +1290,20 @@ Response (JSON array only):"""
             # Capitalize for display
             display_name = label_name.capitalize()
 
-            # Find or create label
+            # Find or create label (scoped to vault)
             with engine.begin() as conn:
                 existing = conn.execute(
-                    text("SELECT id FROM labels WHERE user_id = :uid AND LOWER(name) = :name AND deleted_at IS NULL"),
-                    {"uid": user_id, "name": label_name}
+                    text("SELECT id FROM labels WHERE vault_id = :vid AND LOWER(name) = :name AND deleted_at IS NULL"),
+                    {"vid": vault_id, "name": label_name}
                 ).fetchone()
 
                 if existing:
                     label_id = str(existing[0])
                 else:
                     result_row = conn.execute(
-                        text("INSERT INTO labels (id, user_id, name, color, created_at, updated_at) "
-                             "VALUES (gen_random_uuid(), :uid, :name, :color, NOW(), NOW()) RETURNING id"),
-                        {"uid": user_id, "name": display_name, "color": color}
+                        text("INSERT INTO labels (id, user_id, vault_id, name, color, created_at, updated_at) "
+                             "VALUES (gen_random_uuid(), :uid, :vid, :name, :color, NOW(), NOW()) RETURNING id"),
+                        {"uid": user_id, "vid": vault_id, "name": display_name, "color": color}
                     )
                     label_id = str(result_row.fetchone()[0])
 
@@ -1395,17 +1399,19 @@ def send_push_notification(note_id: str, title: str, status: str):
 
 # ── Activity Logging ───────────────────────────────────
 
-def log_activity(note_id: str, action: str, title: str, description: str = ""):
-    """Log an activity event for the note's owner."""
+def log_activity(note_id: str, action: str, title: str, description: str = "", vault_id: str = None):
+    """Log an activity event for the note's owner (scoped to vault)."""
     try:
         with engine.begin() as conn:
-            row = conn.execute(text("SELECT user_id FROM notes WHERE id = :nid"), {"nid": note_id}).fetchone()
+            row = conn.execute(text("SELECT user_id, vault_id FROM notes WHERE id = :nid"), {"nid": note_id}).fetchone()
             if not row:
                 return
+            if not vault_id:
+                vault_id = str(row[1])
             conn.execute(
-                text("""INSERT INTO activity_logs (id, user_id, action, title, description, note_id, created_at)
-                        VALUES (gen_random_uuid(), :uid, :action, :title, :desc, :nid, NOW())"""),
-                {"uid": str(row[0]), "action": action, "title": title, "desc": description, "nid": note_id}
+                text("""INSERT INTO activity_logs (id, user_id, vault_id, action, title, description, note_id, created_at)
+                        VALUES (gen_random_uuid(), :uid, :vid, :action, :title, :desc, :nid, NOW())"""),
+                {"uid": str(row[0]), "vid": vault_id, "action": action, "title": title, "desc": description, "nid": note_id}
             )
     except Exception:
         pass  # Non-critical
@@ -1413,29 +1419,31 @@ def log_activity(note_id: str, action: str, title: str, description: str = ""):
 
 # ── Note Relations (Cross-Reference) ───────────────────
 
-def find_related_notes(note_id: str):
-    """Find semantically related notes and create relation entries."""
+def find_related_notes(note_id: str, vault_id: str = None):
+    """Find semantically related notes and create relation entries (scoped to vault)."""
     try:
         with engine.begin() as conn:
             row = conn.execute(
-                text("SELECT user_id, embedding FROM notes WHERE id = :nid AND embedding IS NOT NULL"),
+                text("SELECT user_id, vault_id, embedding FROM notes WHERE id = :nid AND embedding IS NOT NULL"),
                 {"nid": note_id}
             ).fetchone()
-            if not row or not row[1]:
+            if not row or not row[2]:
                 return
             user_id = str(row[0])
+            if not vault_id:
+                vault_id = str(row[1])
 
-        # Find top 5 most similar notes using pgvector
+        # Find top 5 most similar notes using pgvector (vault-scoped)
         with engine.begin() as conn:
             similar = conn.execute(
                 text("""
                     SELECT id, title, 1 - (embedding <=> (SELECT embedding FROM notes WHERE id = :nid)) as similarity
                     FROM notes
-                    WHERE user_id = :uid AND id != :nid AND embedding IS NOT NULL AND deleted_at IS NULL
+                    WHERE vault_id = :vid AND id != :nid AND embedding IS NOT NULL AND deleted_at IS NULL
                     ORDER BY embedding <=> (SELECT embedding FROM notes WHERE id = :nid)
                     LIMIT 5
                 """),
-                {"nid": note_id, "uid": user_id}
+                {"nid": note_id, "vid": vault_id}
             ).fetchall()
 
         if not similar:
@@ -1474,15 +1482,15 @@ def find_related_notes(note_id: str):
 
             with engine.begin() as conn:
                 conn.execute(
-                    text("""INSERT INTO note_relations (id, note_id_a, note_id_b, relation_type, description, score, created_at)
-                            VALUES (gen_random_uuid(), :a, :b, :type, :desc, :score, NOW())"""),
-                    {"a": note_id, "b": sim_id, "type": rel_type, "desc": desc, "score": similarity}
+                    text("""INSERT INTO note_relations (id, vault_id, note_id_a, note_id_b, relation_type, description, score, created_at)
+                            VALUES (gen_random_uuid(), :vid, :a, :b, :type, :desc, :score, NOW())"""),
+                    {"vid": vault_id, "a": note_id, "b": sim_id, "type": rel_type, "desc": desc, "score": similarity}
                 )
                 linked += 1
 
         if linked > 0:
             logger.info(f"🔗 Linked note {note_id} to {linked} related notes")
-            log_activity(note_id, "relation_found", f"{linked} related notes found", f"Cross-referenced with {linked} similar notes")
+            log_activity(note_id, "relation_found", f"{linked} related notes found", f"Cross-referenced with {linked} similar notes", vault_id=vault_id)
 
     except Exception as e:
         logger.warning(f"⚠️ Note relation detection failed: {e}")
@@ -1490,22 +1498,24 @@ def find_related_notes(note_id: str):
 
 # ── Synthesis Pages ────────────────────────────────────
 
-def update_synthesis_pages(note_id: str, ai_summary: str, language: str = "en"):
-    """Create or update synthesis pages based on the note's topic labels."""
+def update_synthesis_pages(note_id: str, ai_summary: str, language: str = "en", vault_id: str = None):
+    """Create or update synthesis pages based on the note's topic labels (scoped to vault)."""
     if not ai_summary or len(ai_summary) < 100:
         return
 
     try:
-        # Get user_id and note's labels
+        # Get user_id, vault_id, and note's labels
         with engine.begin() as conn:
             row = conn.execute(
-                text("SELECT user_id, title FROM notes WHERE id = :nid"),
+                text("SELECT user_id, vault_id, title FROM notes WHERE id = :nid"),
                 {"nid": note_id}
             ).fetchone()
             if not row:
                 return
             user_id = str(row[0])
-            note_title = row[1] or ""
+            if not vault_id:
+                vault_id = str(row[1])
+            note_title = row[2] or ""
 
             # Get this note's labels (topic labels, not source labels)
             labels = conn.execute(
@@ -1524,21 +1534,21 @@ def update_synthesis_pages(note_id: str, ai_summary: str, language: str = "en"):
         # For each topic label, update or create a synthesis page
         for label_row in labels[:3]:  # Max 3 topics per note
             topic = label_row[0]
-            _update_single_synthesis(user_id, note_id, note_title, topic, ai_summary, language)
+            _update_single_synthesis(user_id, vault_id, note_id, note_title, topic, ai_summary, language)
 
     except Exception as e:
         logger.warning(f"⚠️ Synthesis page update failed: {e}")
 
 
-def _update_single_synthesis(user_id: str, note_id: str, note_title: str, topic: str, ai_summary: str, language: str):
-    """Update or create a single synthesis page for a topic."""
+def _update_single_synthesis(user_id: str, vault_id: str, note_id: str, note_title: str, topic: str, ai_summary: str, language: str):
+    """Update or create a single synthesis page for a topic (scoped to vault)."""
     import time as _time
 
-    # Check if synthesis page exists for this topic
+    # Check if synthesis page exists for this topic in this vault
     with engine.begin() as conn:
         existing = conn.execute(
-            text("SELECT id, content, note_count FROM synthesis_pages WHERE user_id = :uid AND LOWER(topic) = LOWER(:topic) AND deleted_at IS NULL"),
-            {"uid": user_id, "topic": topic}
+            text("SELECT id, content, note_count FROM synthesis_pages WHERE vault_id = :vid AND LOWER(topic) = LOWER(:topic) AND deleted_at IS NULL"),
+            {"vid": vault_id, "topic": topic}
         ).fetchone()
 
     lang_name = "Turkish" if language == "tr" else "English"
@@ -1615,9 +1625,9 @@ Output ONLY the synthesis content. Do not ask questions or add commentary."""
             title = f"{topic}: Knowledge Synthesis" if language != "tr" else f"{topic}: Bilgi Sentezi"
             with engine.begin() as conn:
                 page_result = conn.execute(
-                    text("""INSERT INTO synthesis_pages (id, user_id, topic, title, content, note_count, created_at, updated_at)
-                            VALUES (gen_random_uuid(), :uid, :topic, :title, :content, 1, NOW(), NOW()) RETURNING id"""),
-                    {"uid": user_id, "topic": topic, "title": title, "content": result}
+                    text("""INSERT INTO synthesis_pages (id, user_id, vault_id, topic, title, content, note_count, created_at, updated_at)
+                            VALUES (gen_random_uuid(), :uid, :vid, :topic, :title, :content, 1, NOW(), NOW()) RETURNING id"""),
+                    {"uid": user_id, "vid": vault_id, "topic": topic, "title": title, "content": result}
                 )
                 page_id = str(page_result.fetchone()[0])
                 conn.execute(
@@ -1643,21 +1653,23 @@ ENTITY_TYPE_MAP = {
 }
 
 
-def extract_entities(note_id: str, ai_insight: str, language: str = "en"):
-    """Extract structured entities from AI insight and store them in the database."""
+def extract_entities(note_id: str, ai_insight: str, language: str = "en", vault_id: str = None):
+    """Extract structured entities from AI insight and store them in the database (scoped to vault)."""
     if not ai_insight or len(ai_insight) < 100:
         return
 
     try:
-        # Get user_id for this note
+        # Get user_id and vault_id for this note
         with engine.begin() as conn:
             row = conn.execute(
-                text("SELECT user_id FROM notes WHERE id = :nid"),
+                text("SELECT user_id, vault_id FROM notes WHERE id = :nid"),
                 {"nid": note_id}
             ).fetchone()
             if not row:
                 return
             user_id = str(row[0])
+            if not vault_id:
+                vault_id = str(row[1])
 
         lang_name = "Turkish" if language == "tr" else "English"
 
@@ -1711,12 +1723,12 @@ Response (JSON array only):"""
             if etype not in valid_types:
                 continue
 
-            # Find or create entity (deduplicate by name + type per user)
+            # Find or create entity (deduplicate by name + type per vault)
             with engine.begin() as conn:
                 existing = conn.execute(
                     text("""SELECT id FROM entities
-                            WHERE user_id = :uid AND LOWER(name) = LOWER(:name) AND type = :type AND deleted_at IS NULL"""),
-                    {"uid": user_id, "name": name, "type": etype}
+                            WHERE vault_id = :vid AND LOWER(name) = LOWER(:name) AND type = :type AND deleted_at IS NULL"""),
+                    {"vid": vault_id, "name": name, "type": etype}
                 ).fetchone()
 
                 if existing:
@@ -1728,9 +1740,9 @@ Response (JSON array only):"""
                     )
                 else:
                     result_row = conn.execute(
-                        text("""INSERT INTO entities (id, user_id, name, type, description, note_count, created_at, updated_at)
-                                VALUES (gen_random_uuid(), :uid, :name, :type, :desc, 1, NOW(), NOW()) RETURNING id"""),
-                        {"uid": user_id, "name": name, "type": etype, "desc": desc}
+                        text("""INSERT INTO entities (id, user_id, vault_id, name, type, description, note_count, created_at, updated_at)
+                                VALUES (gen_random_uuid(), :uid, :vid, :name, :type, :desc, 1, NOW(), NOW()) RETURNING id"""),
+                        {"uid": user_id, "vid": vault_id, "name": name, "type": etype, "desc": desc}
                     )
                     entity_id = str(result_row.fetchone()[0])
 
@@ -1742,15 +1754,15 @@ Response (JSON array only):"""
                 ).fetchone()
                 if not exists:
                     conn.execute(
-                        text("""INSERT INTO note_entities (id, note_id, entity_id, context, created_at)
-                                VALUES (gen_random_uuid(), :nid, :eid, :ctx, NOW())"""),
-                        {"nid": note_id, "eid": entity_id, "ctx": desc[:300]}
+                        text("""INSERT INTO note_entities (id, note_id, entity_id, vault_id, context, created_at)
+                                VALUES (gen_random_uuid(), :nid, :eid, :vid, :ctx, NOW())"""),
+                        {"nid": note_id, "eid": entity_id, "vid": vault_id, "ctx": desc[:300]}
                     )
                     count += 1
 
         if count > 0:
             logger.info(f"🧬 Extracted {count} entities for note {note_id}")
-            log_activity(note_id, "entities_extracted", f"{count} entities found", f"Extracted {count} entities from content")
+            log_activity(note_id, "entities_extracted", f"{count} entities found", f"Extracted {count} entities from content", vault_id=vault_id)
 
     except Exception as e:
         logger.warning(f"⚠️ Entity extraction failed for {note_id}: {e}")
@@ -1982,7 +1994,7 @@ Keep it concise, insightful, and written entirely in {lang_name}. Do not add con
 
 
 @app.task(bind=True, max_retries=3, default_retry_delay=60)
-def process_url(self, note_id: str, url: str, language: str = "en"):
+def process_url(self, note_id: str, url: str, language: str = "en", vault_id: str = None):
     """
     Main pipeline task:
     1. Extract content from URL (article/video)
@@ -1991,6 +2003,19 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
     4. Update the note in PostgreSQL with results
     """
     logger.info(f"📥 Processing URL for note {note_id}: {url}")
+
+    # Derive vault_id from the note if not provided (backward compat)
+    if not vault_id:
+        try:
+            with engine.begin() as conn:
+                row = conn.execute(
+                    text("SELECT vault_id::text FROM notes WHERE id = :nid"),
+                    {"nid": note_id}
+                ).fetchone()
+                if row:
+                    vault_id = row[0]
+        except Exception:
+            pass
 
     try:
         # Step 1: Extract content
@@ -2043,22 +2068,22 @@ def process_url(self, note_id: str, url: str, language: str = "en"):
         generate_embedding(note_id, extracted["title"], extracted["content"], ai_summary)
 
         # Step 7: Auto-label based on source URL
-        auto_label_source(note_id, url)
+        auto_label_source(note_id, url, vault_id=vault_id)
 
         # Step 8: AI-based topic labels from content
-        auto_label_topics(note_id, extracted["title"], ai_summary, language)
+        auto_label_topics(note_id, extracted["title"], ai_summary, language, vault_id=vault_id)
 
         # Step 9: Find and link related notes
-        find_related_notes(note_id)
+        find_related_notes(note_id, vault_id=vault_id)
 
         # Step 10: Update or create synthesis pages for this note's topics
-        update_synthesis_pages(note_id, ai_summary, language)
+        update_synthesis_pages(note_id, ai_summary, language, vault_id=vault_id)
 
         # Step 11: Extract entities from AI insight
-        extract_entities(note_id, ai_summary, language)
+        extract_entities(note_id, ai_summary, language, vault_id=vault_id)
 
         logger.info(f"✅ Note {note_id} processed successfully")
-        log_activity(note_id, "note_processed", update_fields.get("title", extracted["title"]), "AI processing complete")
+        log_activity(note_id, "note_processed", update_fields.get("title", extracted["title"]), "AI processing complete", vault_id=vault_id)
         send_push_notification(note_id, update_fields.get("title", extracted["title"]), "ready")
         return {"status": "success", "note_id": note_id}
 

@@ -11,8 +11,8 @@ import (
 
 // ListEntities returns all entities for the current user.
 func ListEntities(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -20,7 +20,7 @@ func ListEntities(c *gin.Context) {
 	entityType := c.Query("type")
 	q := c.Query("q")
 
-	query := database.DB.Where("user_id = ?", user.ID).Order("note_count DESC, name ASC")
+	query := database.DB.Where("vault_id = ?", vault.ID).Order("note_count DESC, name ASC")
 
 	if entityType != "" {
 		query = query.Where("type = ?", entityType)
@@ -41,13 +41,13 @@ func ListEntities(c *gin.Context) {
 	database.DB.Raw(`
 		SELECT type, COUNT(*) as count
 		FROM entities
-		WHERE user_id = ? AND deleted_at IS NULL
+		WHERE vault_id = ? AND deleted_at IS NULL
 		GROUP BY type
 		ORDER BY count DESC
-	`, user.ID).Scan(&typeCounts)
+	`, vault.ID).Scan(&typeCounts)
 
 	var totalCount int64
-	database.DB.Model(&models.Entity{}).Where("user_id = ?", user.ID).Count(&totalCount)
+	database.DB.Model(&models.Entity{}).Where("vault_id = ?", vault.ID).Count(&totalCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"entities":    entities,
@@ -58,8 +58,8 @@ func ListEntities(c *gin.Context) {
 
 // GetEntity returns a single entity with its linked notes.
 func GetEntity(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -67,7 +67,7 @@ func GetEntity(c *gin.Context) {
 	entityID := c.Param("id")
 
 	var entity models.Entity
-	if err := database.DB.Where("id = ? AND user_id = ?", entityID, user.ID).First(&entity).Error; err != nil {
+	if err := database.DB.Where("id = ? AND vault_id = ?", entityID, vault.ID).First(&entity).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Entity not found"})
 		return
 	}
@@ -96,8 +96,8 @@ func GetEntity(c *gin.Context) {
 
 // GetEntityGraph returns a graph with entities as hub nodes connecting notes.
 func GetEntityGraph(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -113,9 +113,9 @@ func GetEntityGraph(c *gin.Context) {
 	database.DB.Raw(`
 		SELECT e.id, e.name, e.type, e.note_count
 		FROM entities e
-		WHERE e.user_id = ? AND e.deleted_at IS NULL AND e.note_count >= 2
+		WHERE e.vault_id = ? AND e.deleted_at IS NULL AND e.note_count >= 2
 		ORDER BY e.note_count DESC LIMIT 100
-	`, user.ID).Scan(&entities)
+	`, vault.ID).Scan(&entities)
 
 	// Get note-entity links
 	type linkRow struct {
@@ -134,8 +134,8 @@ func GetEntityGraph(c *gin.Context) {
 			SELECT ne.note_id, ne.entity_id
 			FROM note_entities ne
 			JOIN notes n ON n.id = ne.note_id
-			WHERE ne.entity_id IN ? AND n.deleted_at IS NULL AND n.status = 'ready' AND n.user_id = ?
-		`, entityIDs, user.ID).Scan(&links)
+			WHERE ne.entity_id IN ? AND n.deleted_at IS NULL AND n.status = 'ready' AND n.vault_id = ?
+		`, entityIDs, vault.ID).Scan(&links)
 	}
 
 	// Collect note IDs we need

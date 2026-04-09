@@ -21,6 +21,7 @@ const (
 type Note struct {
 	ID        uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	UserID    uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
+	VaultID   uuid.UUID      `gorm:"type:uuid;not null;index" json:"vault_id"`
 	Title     string         `gorm:"size:500" json:"title"`
 	Content   string         `gorm:"type:text" json:"content"`
 	SourceURL    string         `gorm:"size:2048" json:"source_url,omitempty"`

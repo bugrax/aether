@@ -11,6 +11,7 @@ import (
 type Entity struct {
 	ID          uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	UserID      uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
+	VaultID     uuid.UUID      `gorm:"type:uuid;not null;index" json:"vault_id"`
 	Name        string         `gorm:"size:200;not null" json:"name"`
 	Type        string         `gorm:"size:30;not null;index" json:"type"` // person, concept, tool, book, film, music, website, location, organization, event
 	Description string         `gorm:"size:500" json:"description"`
@@ -29,6 +30,7 @@ type NoteEntity struct {
 	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	NoteID    uuid.UUID `gorm:"type:uuid;not null;index" json:"note_id"`
 	EntityID  uuid.UUID `gorm:"type:uuid;not null;index" json:"entity_id"`
+	VaultID   uuid.UUID `gorm:"type:uuid;not null;index" json:"vault_id"`
 	Context   string    `gorm:"size:300" json:"context"` // Short excerpt showing entity in context
 	CreatedAt time.Time `json:"created_at"`
 }

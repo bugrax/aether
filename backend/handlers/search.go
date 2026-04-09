@@ -31,8 +31,8 @@ type embedResponse struct {
 // SemanticSearch performs vector similarity search using pgvector.
 // GET /api/v1/search?q=<query>
 func SemanticSearch(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -52,7 +52,7 @@ func SemanticSearch(c *gin.Context) {
 	embedding, err := getEmbedding(embeddingURL, query)
 	if err != nil {
 		// Fallback to text search if embedding sidecar is down
-		fallbackTextSearch(c, user.ID.String(), query)
+		fallbackTextSearch(c, vault.ID.String(), query)
 		return
 	}
 
@@ -61,7 +61,7 @@ func SemanticSearch(c *gin.Context) {
 
 	var results []models.Note
 	err = database.DB.
-		Where("user_id = ? AND embedding IS NOT NULL", user.ID).
+		Where("vault_id = ? AND embedding IS NOT NULL", vault.ID).
 		Preload("Labels").
 		Order(fmt.Sprintf("embedding <=> '%s'", vecStr)).
 		Limit(20).
@@ -130,12 +130,12 @@ func formatVector(embedding []float32) string {
 	return "[" + strings.Join(parts, ",") + "]"
 }
 
-func fallbackTextSearch(c *gin.Context, userID, query string) {
+func fallbackTextSearch(c *gin.Context, vaultID, query string) {
 	var results []models.Note
 	pattern := "%" + query + "%"
 	err := database.DB.
-		Where("user_id = ? AND (title ILIKE ? OR content ILIKE ? OR ai_insight ILIKE ?)",
-			userID, pattern, pattern, pattern).
+		Where("vault_id = ? AND (title ILIKE ? OR content ILIKE ? OR ai_insight ILIKE ?)",
+			vaultID, pattern, pattern, pattern).
 		Preload("Labels").
 		Order("updated_at DESC").
 		Limit(20).

@@ -24,8 +24,8 @@ type graphLink struct {
 
 // GetGraph returns nodes and links for the knowledge graph visualization.
 func GetGraph(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -48,9 +48,9 @@ func GetGraph(c *gin.Context) {
 			 WHERE nl.note_id = n.id AND LOWER(l.name) NOT IN ('youtube','instagram','twitter/x')
 			 LIMIT 1) as label_color
 		FROM notes n
-		WHERE n.user_id = ? AND n.deleted_at IS NULL AND n.status = 'ready'
+		WHERE n.vault_id = ? AND n.deleted_at IS NULL AND n.status = 'ready'
 		ORDER BY n.created_at DESC LIMIT 200
-	`, user.ID).Scan(&rows)
+	`, vault.ID).Scan(&rows)
 
 	// Count relations per note for sizing
 	type relCount struct {
@@ -60,11 +60,11 @@ func GetGraph(c *gin.Context) {
 	var counts []relCount
 	database.DB.Raw(`
 		SELECT note_id, COUNT(*) as cnt FROM (
-			SELECT note_id_a as note_id FROM note_relations
+			SELECT note_id_a as note_id FROM note_relations WHERE vault_id = ?
 			UNION ALL
-			SELECT note_id_b as note_id FROM note_relations
+			SELECT note_id_b as note_id FROM note_relations WHERE vault_id = ?
 		) sub GROUP BY note_id
-	`).Scan(&counts)
+	`, vault.ID, vault.ID).Scan(&counts)
 
 	countMap := make(map[string]int)
 	for _, c := range counts {
@@ -108,8 +108,9 @@ func GetGraph(c *gin.Context) {
 	}
 	var rels []relRow
 	database.DB.Raw(`
-		SELECT note_id_a, note_id_b, score FROM note_relations ORDER BY score DESC LIMIT 500
-	`).Scan(&rels)
+		SELECT note_id_a, note_id_b, score FROM note_relations
+		WHERE vault_id = ? ORDER BY score DESC LIMIT 500
+	`, vault.ID).Scan(&rels)
 
 	links := make([]graphLink, 0)
 	for _, r := range rels {

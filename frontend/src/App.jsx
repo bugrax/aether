@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate } from 'rea
 import { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LanguageProvider } from './contexts/LanguageContext';
+import { VaultProvider } from './contexts/VaultContext';
 import { labelsAPI } from './api';
 import { initAnalytics } from './analytics';
 import Sidebar from './components/Sidebar';
@@ -80,6 +81,13 @@ function AppRoutes() {
     return () => { delete window.__TAURI_NAVIGATE__; };
   }, [nav]);
 
+  // Reload dashboard when vault changes
+  useEffect(() => {
+    const onVaultChange = () => nav('/vault', { replace: true });
+    window.addEventListener('vault-changed', onVaultChange);
+    return () => window.removeEventListener('vault-changed', onVaultChange);
+  }, [nav]);
+
   // Show onboarding for users who haven't seen it yet
   if (!onboarded && !loading) {
     return <OnboardingPage onComplete={() => setOnboarded(true)} />;
@@ -138,10 +146,12 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <LanguageProvider>
-          {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
-          {!showSplash && <AppRoutes />}
-        </LanguageProvider>
+        <VaultProvider>
+          <LanguageProvider>
+            {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
+            {!showSplash && <AppRoutes />}
+          </LanguageProvider>
+        </VaultProvider>
       </AuthProvider>
     </BrowserRouter>
   );

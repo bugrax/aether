@@ -1,6 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
 
 let authToken = null;
+let currentVaultId = null;
 
 export function setAuthToken(token) {
   authToken = token;
@@ -10,6 +11,18 @@ export function getAuthToken() {
   return authToken;
 }
 
+export function setCurrentVaultId(vaultId) {
+  currentVaultId = vaultId;
+  if (vaultId) {
+    try { localStorage.setItem('aether_current_vault_id', vaultId); } catch {}
+  }
+}
+
+export function getCurrentVaultId() {
+  if (currentVaultId) return currentVaultId;
+  try { return localStorage.getItem('aether_current_vault_id'); } catch { return null; }
+}
+
 async function request(method, path, body = null) {
   const headers = {
     'Content-Type': 'application/json',
@@ -17,6 +30,11 @@ async function request(method, path, body = null) {
 
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
+  }
+
+  const vaultId = getCurrentVaultId();
+  if (vaultId) {
+    headers['X-Vault-Id'] = vaultId;
   }
 
   const options = { method, headers };
@@ -93,6 +111,16 @@ export const usersAPI = {
   updateSettings: (data) => request('PATCH', '/user/settings', data),
   deleteAccount: () => request('DELETE', '/user/account'),
   registerFCMToken: (token) => request('POST', '/user/fcm-token', { token }),
+};
+
+// ── Vaults ───────────────────────────────────────────
+export const vaultsAPI = {
+  list: () => request('GET', '/vaults'),
+  create: (data) => request('POST', '/vaults', data),
+  update: (id, data) => request('PUT', `/vaults/${id}`, data),
+  delete: (id) => request('DELETE', `/vaults/${id}`),
+  setDefault: (id) => request('POST', `/vaults/${id}/default`),
+  moveNote: (noteId, targetVaultId) => request('POST', `/notes/${noteId}/move`, { target_vault_id: targetVaultId }),
 };
 
 // ── Knowledge Graph ──────────────────────────────────

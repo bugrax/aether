@@ -11,6 +11,7 @@ import (
 type SynthesisPage struct {
 	ID        uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	UserID    uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
+	VaultID   uuid.UUID      `gorm:"type:uuid;not null;index" json:"vault_id"`
 	Topic     string         `gorm:"size:100;not null;index" json:"topic"`
 	Title     string         `gorm:"size:500;not null" json:"title"`
 	Content   string         `gorm:"type:text" json:"content"`

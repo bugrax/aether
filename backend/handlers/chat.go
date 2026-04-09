@@ -37,7 +37,8 @@ type feedbackRequest struct {
 // POST /api/v1/chat
 func ChatMessage(c *gin.Context) {
 	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if user == nil || vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -65,6 +66,7 @@ func ChatMessage(c *gin.Context) {
 	// Save user message to DB
 	userMsg := models.ChatMessage{
 		UserID:    user.ID,
+		VaultID:   vault.ID,
 		SessionID: sessionID,
 		Role:      "user",
 		Content:   req.Message,
@@ -72,11 +74,11 @@ func ChatMessage(c *gin.Context) {
 	database.DB.Create(&userMsg)
 
 	// Gather vault context
-	vaultContext := buildVaultContext(user, req.Message)
+	vaultContext := buildVaultContext(user, vault, req.Message)
 
 	// Load conversation history (last 10 messages of this session)
 	var history []models.ChatMessage
-	database.DB.Where("user_id = ? AND session_id = ?", user.ID, sessionID).
+	database.DB.Where("vault_id = ? AND session_id = ?", vault.ID, sessionID).
 		Order("created_at ASC").
 		Limit(10).
 		Find(&history)
@@ -125,6 +127,7 @@ func ChatMessage(c *gin.Context) {
 
 	assistantMsg := models.ChatMessage{
 		UserID:    user.ID,
+		VaultID:   vault.ID,
 		SessionID: sessionID,
 		Role:      "assistant",
 		Content:   fullResponse,
@@ -141,8 +144,8 @@ func ChatMessage(c *gin.Context) {
 // ChatFeedback updates thumbs up/down on a chat message.
 // POST /api/v1/chat/:id/feedback
 func ChatFeedback(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -155,7 +158,7 @@ func ChatFeedback(c *gin.Context) {
 	}
 
 	result := database.DB.Model(&models.ChatMessage{}).
-		Where("id = ? AND user_id = ?", msgID, user.ID).
+		Where("id = ? AND vault_id = ?", msgID, vault.ID).
 		Update("feedback", req.Feedback)
 
 	if result.RowsAffected == 0 {
@@ -171,8 +174,8 @@ func ChatFeedback(c *gin.Context) {
 // ChatSessions returns recent chat sessions.
 // GET /api/v1/chat/sessions
 func ChatSessions(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
@@ -188,9 +191,9 @@ func ChatSessions(c *gin.Context) {
 		SELECT DISTINCT ON (session_id)
 			session_id, content AS preview, created_at
 		FROM chat_messages
-		WHERE user_id = ? AND role = 'user'
+		WHERE vault_id = ? AND role = 'user'
 		ORDER BY session_id, created_at ASC
-	`, user.ID).Scan(&sessions)
+	`, vault.ID).Scan(&sessions)
 
 	c.JSON(http.StatusOK, gin.H{"sessions": sessions})
 }
@@ -198,15 +201,15 @@ func ChatSessions(c *gin.Context) {
 // ChatSessionMessages returns all messages for a session.
 // GET /api/v1/chat/sessions/:session_id
 func ChatSessionMessages(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	sessionID := c.Param("session_id")
 	var messages []models.ChatMessage
-	database.DB.Where("user_id = ? AND session_id = ?", user.ID, sessionID).
+	database.DB.Where("vault_id = ? AND session_id = ?", vault.ID, sessionID).
 		Order("created_at ASC").
 		Find(&messages)
 
@@ -229,24 +232,24 @@ type noteSnippet struct {
 	UpdatedAt time.Time
 }
 
-func buildVaultContext(user *models.User, query string) vaultContext {
+func buildVaultContext(user *models.User, vault *models.Vault, query string) vaultContext {
 	ctx := vaultContext{}
 
 	// Total note count
 	var count int64
-	database.DB.Model(&models.Note{}).Where("user_id = ? AND deleted_at IS NULL", user.ID).Count(&count)
+	database.DB.Model(&models.Note{}).Where("vault_id = ? AND deleted_at IS NULL", vault.ID).Count(&count)
 	ctx.TotalNotes = int(count)
 
 	// Labels
 	var labels []models.Label
-	database.DB.Where("user_id = ? AND deleted_at IS NULL", user.ID).Find(&labels)
+	database.DB.Where("vault_id = ? AND deleted_at IS NULL", vault.ID).Find(&labels)
 	for _, l := range labels {
 		ctx.Labels = append(ctx.Labels, l.Name)
 	}
 
 	// Recent 5 notes
 	var recentNotes []models.Note
-	database.DB.Where("user_id = ? AND deleted_at IS NULL", user.ID).
+	database.DB.Where("vault_id = ? AND deleted_at IS NULL", vault.ID).
 		Order("updated_at DESC").Limit(5).Find(&recentNotes)
 	for _, n := range recentNotes {
 		insight := n.AIInsight
@@ -268,7 +271,7 @@ func buildVaultContext(user *models.User, query string) vaultContext {
 		vecStr := formatVector(embedding)
 		var relevant []models.Note
 		database.DB.
-			Where("user_id = ? AND embedding IS NOT NULL AND deleted_at IS NULL", user.ID).
+			Where("vault_id = ? AND embedding IS NOT NULL AND deleted_at IS NULL", vault.ID).
 			Order(fmt.Sprintf("embedding <=> '%s'", vecStr)).
 			Limit(5).
 			Find(&relevant)

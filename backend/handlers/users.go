@@ -100,29 +100,19 @@ func DeleteAccount(c *gin.Context) {
 
 	tx := database.DB.Begin()
 
-	// Delete all note labels for user's notes
-	if err := tx.Exec("DELETE FROM note_labels WHERE note_id IN (SELECT id FROM notes WHERE user_id = ?)", user.ID).Error; err != nil {
-		tx.Rollback()
-		log.Printf("❌ Failed to delete note_labels for user %s: %v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
-		return
-	}
-
-	// Delete all notes
-	if err := tx.Unscoped().Where("user_id = ?", user.ID).Delete(&models.Note{}).Error; err != nil {
-		tx.Rollback()
-		log.Printf("❌ Failed to delete notes for user %s: %v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
-		return
-	}
-
-	// Delete all labels
-	if err := tx.Unscoped().Where("user_id = ?", user.ID).Delete(&models.Label{}).Error; err != nil {
-		tx.Rollback()
-		log.Printf("❌ Failed to delete labels for user %s: %v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
-		return
-	}
+	// Delete all junction + content data for this user
+	tx.Exec("DELETE FROM note_labels WHERE note_id IN (SELECT id FROM notes WHERE user_id = ?)", user.ID)
+	tx.Exec("DELETE FROM note_revisions WHERE note_id IN (SELECT id FROM notes WHERE user_id = ?)", user.ID)
+	tx.Exec("DELETE FROM note_entities WHERE note_id IN (SELECT id FROM notes WHERE user_id = ?)", user.ID)
+	tx.Exec("DELETE FROM note_relations WHERE vault_id IN (SELECT id FROM vaults WHERE user_id = ?)", user.ID)
+	tx.Exec("DELETE FROM synthesis_notes WHERE synthesis_page_id IN (SELECT id FROM synthesis_pages WHERE user_id = ?)", user.ID)
+	tx.Exec("DELETE FROM synthesis_pages WHERE user_id = ?", user.ID)
+	tx.Exec("DELETE FROM entities WHERE user_id = ?", user.ID)
+	tx.Exec("DELETE FROM activity_logs WHERE user_id = ?", user.ID)
+	tx.Exec("DELETE FROM chat_messages WHERE user_id = ?", user.ID)
+	tx.Unscoped().Where("user_id = ?", user.ID).Delete(&models.Note{})
+	tx.Unscoped().Where("user_id = ?", user.ID).Delete(&models.Label{})
+	tx.Unscoped().Where("user_id = ?", user.ID).Delete(&models.Vault{})
 
 	// Delete the user
 	if err := tx.Unscoped().Delete(&user).Error; err != nil {

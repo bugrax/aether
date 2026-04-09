@@ -41,15 +41,15 @@ type ShareURLRequest struct {
 
 // ListNotes returns all notes for the authenticated user.
 func ListNotes(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	var notes []models.Note
-	query := database.DB.Where("user_id = ?", user.ID).
-		Select("id, user_id, title, source_url, thumbnail_url, status, share_token, created_at, updated_at, deleted_at, LEFT(ai_insight, 200) as ai_insight").
+	query := database.DB.Where("vault_id = ?", vault.ID).
+		Select("id, user_id, vault_id, title, source_url, thumbnail_url, status, share_token, created_at, updated_at, deleted_at, LEFT(ai_insight, 200) as ai_insight").
 		Preload("Labels").
 		Order("created_at DESC")
 
@@ -85,7 +85,7 @@ func ListNotes(c *gin.Context) {
 
 	// Get total count before pagination
 	var total int64
-	countQuery := database.DB.Model(&models.Note{}).Where("user_id = ?", user.ID)
+	countQuery := database.DB.Model(&models.Note{}).Where("vault_id = ?", vault.ID)
 	if status := c.Query("status"); status != "" {
 		countQuery = countQuery.Where("status = ?", status)
 	}
@@ -113,20 +113,20 @@ func ListNotes(c *gin.Context) {
 
 // GetNoteStats returns lightweight counts for the dashboard.
 func GetNoteStats(c *gin.Context) {
-	user := middleware.GetUser(c)
-	if user == nil {
+	vault := middleware.GetVault(c)
+	if vault == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	var total int64
-	database.DB.Model(&models.Note{}).Where("user_id = ? AND deleted_at IS NULL", user.ID).Count(&total)
+	database.DB.Model(&models.Note{}).Where("vault_id = ? AND deleted_at IS NULL", vault.ID).Count(&total)
 
 	var thisWeek int64
-	database.DB.Model(&models.Note{}).Where("user_id = ? AND deleted_at IS NULL AND created_at > NOW() - INTERVAL '7 days'", user.ID).Count(&thisWeek)
+	database.DB.Model(&models.Note{}).Where("vault_id = ? AND deleted_at IS NULL AND created_at > NOW() - INTERVAL '7 days'", vault.ID).Count(&thisWeek)
 
 	var processing int64
-	database.DB.Model(&models.Note{}).Where("user_id = ? AND deleted_at IS NULL AND status = 'processing'", user.ID).Count(&processing)
+	database.DB.Model(&models.Note{}).Where("vault_id = ? AND deleted_at IS NULL AND status = 'processing'", vault.ID).Count(&processing)
 
 	// Label counts
 	type labelCount struct {
@@ -141,10 +141,10 @@ func GetNoteStats(c *gin.Context) {
 		FROM labels l
 		JOIN note_labels nl ON nl.label_id = l.id
 		JOIN notes n ON n.id = nl.note_id AND n.deleted_at IS NULL
-		WHERE l.user_id = ? AND l.deleted_at IS NULL
+		WHERE l.vault_id = ? AND l.deleted_at IS NULL
 		GROUP BY l.id, l.name, l.color
 		ORDER BY count DESC
-	`, user.ID).Scan(&labelCounts)
+	`, vault.ID).Scan(&labelCounts)
 
 	c.JSON(http.StatusOK, gin.H{
 		"total":        total,
@@ -156,11 +156,11 @@ func GetNoteStats(c *gin.Context) {
 
 // GetNote returns a single note by ID.
 func GetNote(c *gin.Context) {
-	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	noteID := c.Param("id")
 
 	var note models.Note
-	if err := database.DB.Where("id = ? AND user_id = ?", noteID, user.ID).
+	if err := database.DB.Where("id = ? AND vault_id = ?", noteID, vault.ID).
 		Preload("Labels").
 		First(&note).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Note not found"})
@@ -172,11 +172,11 @@ func GetNote(c *gin.Context) {
 
 // GetRelatedNotes returns notes related to the given note.
 func GetRelatedNotes(c *gin.Context) {
-	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	noteID := c.Param("id")
 
 	var relations []models.NoteRelation
-	database.DB.Where("note_id_a = ? OR note_id_b = ?", noteID, noteID).
+	database.DB.Where("vault_id = ? AND (note_id_a = ? OR note_id_b = ?)", vault.ID, noteID, noteID).
 		Order("score DESC").
 		Limit(5).
 		Find(&relations)
@@ -194,7 +194,7 @@ func GetRelatedNotes(c *gin.Context) {
 			relatedID = rel.NoteIDA.String()
 		}
 		var note models.Note
-		if err := database.DB.Where("id = ? AND user_id = ?", relatedID, user.ID).
+		if err := database.DB.Where("id = ? AND vault_id = ?", relatedID, vault.ID).
 			Preload("Labels").First(&note).Error; err == nil {
 			results = append(results, RelatedNote{
 				Note:         note,
@@ -210,6 +210,7 @@ func GetRelatedNotes(c *gin.Context) {
 // CreateNote creates a new note.
 func CreateNote(c *gin.Context) {
 	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	var req CreateNoteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -218,6 +219,7 @@ func CreateNote(c *gin.Context) {
 
 	note := models.Note{
 		UserID:    user.ID,
+		VaultID:   vault.ID,
 		Title:     req.Title,
 		Content:   req.Content,
 		SourceURL: req.SourceURL,
@@ -232,7 +234,7 @@ func CreateNote(c *gin.Context) {
 	// Attach labels if provided
 	if len(req.LabelIDs) > 0 {
 		var labels []models.Label
-		database.DB.Where("id IN ? AND user_id = ?", req.LabelIDs, user.ID).Find(&labels)
+		database.DB.Where("id IN ? AND vault_id = ?", req.LabelIDs, vault.ID).Find(&labels)
 		database.DB.Model(&note).Association("Labels").Append(&labels)
 	}
 
@@ -244,11 +246,11 @@ func CreateNote(c *gin.Context) {
 
 // UpdateNote updates an existing note (triggers version history via BeforeUpdate hook).
 func UpdateNote(c *gin.Context) {
-	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	noteID := c.Param("id")
 
 	var note models.Note
-	if err := database.DB.Where("id = ? AND user_id = ?", noteID, user.ID).
+	if err := database.DB.Where("id = ? AND vault_id = ?", noteID, vault.ID).
 		First(&note).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Note not found"})
 		return
@@ -274,10 +276,10 @@ func UpdateNote(c *gin.Context) {
 
 // DeleteNote soft-deletes a note.
 func DeleteNote(c *gin.Context) {
-	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	noteID := c.Param("id")
 
-	result := database.DB.Where("id = ? AND user_id = ?", noteID, user.ID).Delete(&models.Note{})
+	result := database.DB.Where("id = ? AND vault_id = ?", noteID, vault.ID).Delete(&models.Note{})
 	if result.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Note not found"})
 		return
@@ -288,12 +290,12 @@ func DeleteNote(c *gin.Context) {
 
 // GetNoteRevisions returns the version history for a note.
 func GetNoteRevisions(c *gin.Context) {
-	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	noteID := c.Param("id")
 
 	// Verify ownership
 	var note models.Note
-	if err := database.DB.Where("id = ? AND user_id = ?", noteID, user.ID).
+	if err := database.DB.Where("id = ? AND vault_id = ?", noteID, vault.ID).
 		First(&note).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Note not found"})
 		return
@@ -305,9 +307,59 @@ func GetNoteRevisions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"revisions": revisions})
 }
 
+// enqueueProcessURL publishes a process_url task to the Celery queue via Redis.
+// Helper shared between ShareURL (new note) and MoveNote (reprocess after move).
+func enqueueProcessURL(ctx context.Context, noteID, url, vaultID, language string) error {
+	taskID := uuid.New().String()
+	body := []interface{}{
+		[]interface{}{noteID, url}, // args
+		map[string]interface{}{"language": language, "vault_id": vaultID}, // kwargs
+		map[string]interface{}{"callbacks": nil, "errbacks": nil, "chain": nil, "chord": nil},
+	}
+	bodyJSON, _ := json.Marshal(body)
+	kwargsRepr := "{'language': '" + language + "', 'vault_id': '" + vaultID + "'}"
+
+	celeryMsg := map[string]interface{}{
+		"body":             string(bodyJSON),
+		"content-encoding": "utf-8",
+		"content-type":     "application/json",
+		"headers": map[string]interface{}{
+			"lang":       "py",
+			"task":       "tasks.process_url",
+			"id":         taskID,
+			"root_id":    taskID,
+			"parent_id":  nil,
+			"group":      nil,
+			"argsrepr":   "(" + noteID + ", " + url + ")",
+			"kwargsrepr": kwargsRepr,
+			"origin":     "aether-api@go",
+		},
+		"properties": map[string]interface{}{
+			"correlation_id": taskID,
+			"reply_to":       "",
+			"delivery_mode":  2,
+			"delivery_info": map[string]interface{}{
+				"exchange":    "",
+				"routing_key": "celery",
+			},
+			"priority":     0,
+			"body_encoding": "utf-8",
+			"delivery_tag":  taskID,
+		},
+	}
+	celeryJSON, _ := json.Marshal(celeryMsg)
+	return RedisClient.LPush(ctx, "celery", celeryJSON).Err()
+}
+
 // ShareURL creates a note from a shared URL and enqueues it for AI processing.
 func ShareURL(c *gin.Context) {
 	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
+	if vault == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No vault selected"})
+		return
+	}
+
 	var req ShareURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -321,6 +373,7 @@ func ShareURL(c *gin.Context) {
 	}
 	note := models.Note{
 		UserID:    user.ID,
+		VaultID:   vault.ID,
 		Title:     processingTitle,
 		SourceURL: req.URL,
 		Status:    models.StatusProcessing,
@@ -331,53 +384,12 @@ func ShareURL(c *gin.Context) {
 		return
 	}
 
-	// Enqueue job to Redis in Celery-compatible format
-	taskID := uuid.New().String()
 	aiLang := user.AILanguage
 	if aiLang == "" {
 		aiLang = user.Language
 	}
-	body := []interface{}{
-		[]interface{}{note.ID.String(), req.URL}, // args
-		map[string]interface{}{"language": aiLang}, // kwargs
-		map[string]interface{}{"callbacks": nil, "errbacks": nil, "chain": nil, "chord": nil},
-	}
-	bodyJSON, _ := json.Marshal(body)
 
-	kwargsRepr := "{'language': '" + aiLang + "'}"
-
-	celeryMsg := map[string]interface{}{
-		"body":             string(bodyJSON),
-		"content-encoding": "utf-8",
-		"content-type":     "application/json",
-		"headers": map[string]interface{}{
-			"lang":       "py",
-			"task":       "tasks.process_url",
-			"id":         taskID,
-			"root_id":    taskID,
-			"parent_id":  nil,
-			"group":      nil,
-			"argsrepr":   "(" + note.ID.String() + ", " + req.URL + ")",
-			"kwargsrepr": kwargsRepr,
-			"origin":     "aether-api@go",
-		},
-		"properties": map[string]interface{}{
-			"correlation_id": taskID,
-			"reply_to":       "",
-			"delivery_mode":  2,
-			"delivery_info": map[string]interface{}{
-				"exchange":    "",
-				"routing_key": "celery",
-			},
-			"priority":    0,
-			"body_encoding": "utf-8",
-			"delivery_tag": taskID,
-		},
-	}
-	celeryJSON, _ := json.Marshal(celeryMsg)
-
-	if err := RedisClient.LPush(context.Background(), "celery", celeryJSON).Err(); err != nil {
-		// Don't fail the request — the note is saved, just not enqueued
+	if err := enqueueProcessURL(context.Background(), note.ID.String(), req.URL, vault.ID.String(), aiLang); err != nil {
 		note.Status = models.StatusError
 		database.DB.Save(&note)
 		c.JSON(http.StatusCreated, gin.H{
@@ -395,11 +407,11 @@ func ShareURL(c *gin.Context) {
 
 // UpdateNoteLabels replaces all labels on a note.
 func UpdateNoteLabels(c *gin.Context) {
-	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	noteID := c.Param("id")
 
 	var note models.Note
-	if err := database.DB.Where("id = ? AND user_id = ?", noteID, user.ID).
+	if err := database.DB.Where("id = ? AND vault_id = ?", noteID, vault.ID).
 		First(&note).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Note not found"})
 		return
@@ -419,7 +431,7 @@ func UpdateNoteLabels(c *gin.Context) {
 	// Set new labels
 	if len(req.LabelIDs) > 0 {
 		var labels []models.Label
-		database.DB.Where("id IN ? AND user_id = ?", req.LabelIDs, user.ID).Find(&labels)
+		database.DB.Where("id IN ? AND vault_id = ?", req.LabelIDs, vault.ID).Find(&labels)
 		database.DB.Model(&note).Association("Labels").Append(&labels)
 	}
 
@@ -429,11 +441,11 @@ func UpdateNoteLabels(c *gin.Context) {
 
 // ToggleShare creates or removes a public share token for a note.
 func ToggleShare(c *gin.Context) {
-	user := middleware.GetUser(c)
+	vault := middleware.GetVault(c)
 	noteID := c.Param("id")
 
 	var note models.Note
-	if err := database.DB.Where("id = ? AND user_id = ?", noteID, user.ID).First(&note).Error; err != nil {
+	if err := database.DB.Where("id = ? AND vault_id = ?", noteID, vault.ID).First(&note).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Note not found"})
 		return
 	}

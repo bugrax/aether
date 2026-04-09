@@ -106,7 +106,18 @@ func main() {
 	// ── API v1 Routes (Protected) ─────────────────────
 	v1 := r.Group("/api/v1")
 	v1.Use(middleware.AuthRequired())
+	v1.Use(middleware.VaultResolver())
 	{
+		// Vaults
+		v1.GET("/vaults", handlers.ListVaults)
+		v1.POST("/vaults", handlers.CreateVault)
+		v1.PUT("/vaults/:id", handlers.UpdateVault)
+		v1.DELETE("/vaults/:id", handlers.DeleteVault)
+		v1.POST("/vaults/:id/default", handlers.SetDefaultVault)
+
+		// Move note between vaults
+		v1.POST("/notes/:id/move", handlers.MoveNote)
+
 		// Notes
 		v1.GET("/notes/stats", handlers.GetNoteStats)
 		v1.GET("/notes", handlers.ListNotes)
