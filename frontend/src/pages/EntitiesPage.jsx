@@ -34,6 +34,7 @@ export default function EntitiesPage() {
   const navigate = useNavigate();
   const { lang } = useLanguage();
   const [entities, setEntities] = useState([]);
+  const [typeCounts, setTypeCounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState('');
   const [search, setSearch] = useState('');
@@ -51,6 +52,7 @@ export default function EntitiesPage() {
       if (search) params.q = search;
       const data = await entitiesAPI.list(params);
       setEntities(data.entities || []);
+      setTypeCounts(data.type_counts || []);
     } catch (err) {
       console.error('Entity load failed:', err);
     } finally {
@@ -58,14 +60,12 @@ export default function EntitiesPage() {
     }
   }
 
-  // Group entities by type
-  const grouped = {};
-  for (const e of entities) {
-    if (!grouped[e.type]) grouped[e.type] = [];
-    grouped[e.type].push(e);
+  // Type counts from backend (accurate DB counts, not just loaded entities)
+  const typeCountMap = {};
+  for (const tc of typeCounts) {
+    typeCountMap[tc.type] = tc.count;
   }
-
-  const types = Object.keys(grouped).sort();
+  const types = typeCounts.map(tc => tc.type);
 
   return (
     <div className="main-content">
@@ -142,7 +142,7 @@ export default function EntitiesPage() {
                 >
                   <span style={{ fontSize: '0.8rem' }}>{TYPE_ICONS[type] || ''}</span>
                   <span style={{ textTransform: 'capitalize' }}>{type}</span>
-                  <span style={{ fontWeight: 600, opacity: 0.7 }}>{grouped[type]?.length || 0}</span>
+                  <span style={{ fontWeight: 600, opacity: 0.7 }}>{typeCountMap[type] || 0}</span>
                 </button>
               );
             })}

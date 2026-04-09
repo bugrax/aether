@@ -30,9 +30,30 @@ func ListEntities(c *gin.Context) {
 	}
 
 	var entities []models.Entity
-	query.Limit(200).Find(&entities)
+	query.Limit(500).Find(&entities)
 
-	c.JSON(http.StatusOK, gin.H{"entities": entities})
+	// Get total counts per type (ignoring current filter)
+	type typeCount struct {
+		Type  string `json:"type"`
+		Count int    `json:"count"`
+	}
+	var typeCounts []typeCount
+	database.DB.Raw(`
+		SELECT type, COUNT(*) as count
+		FROM entities
+		WHERE user_id = ? AND deleted_at IS NULL
+		GROUP BY type
+		ORDER BY count DESC
+	`, user.ID).Scan(&typeCounts)
+
+	var totalCount int64
+	database.DB.Model(&models.Entity{}).Where("user_id = ?", user.ID).Count(&totalCount)
+
+	c.JSON(http.StatusOK, gin.H{
+		"entities":    entities,
+		"type_counts": typeCounts,
+		"total":       totalCount,
+	})
 }
 
 // GetEntity returns a single entity with its linked notes.
