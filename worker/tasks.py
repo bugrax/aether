@@ -1831,16 +1831,24 @@ def _extract_youtube_comments(url: str) -> list:
 
 
 def _extract_instagram_comments(url: str) -> list:
-    """Extract Instagram comments using Apify Instagram Comment Scraper."""
+    """Extract Instagram comments using Apify apidojo Instagram Comments Scraper."""
+    import re as _re
     APIFY_TOKEN = os.getenv("APIFY_TOKEN", "")
     if not APIFY_TOKEN:
         return []
 
     logger.info(f"💬 Extracting Instagram comments for {url}")
     try:
+        # Extract shortcode from URL — works for /p/, /reel/, /tv/ formats
+        shortcode_match = _re.search(r"instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)", url)
+        if shortcode_match:
+            payload = {"postIds": [shortcode_match.group(1)], "maxItems": 200}
+        else:
+            payload = {"startUrls": [url], "maxItems": 200}
+
         resp = requests.post(
-            f"https://api.apify.com/v2/acts/apify~instagram-comment-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}",
-            json={"directUrls": [url], "resultsLimit": 200},
+            f"https://api.apify.com/v2/acts/apidojo~instagram-comments-scraper-api/run-sync-get-dataset-items?token={APIFY_TOKEN}",
+            json=payload,
             timeout=120,
         )
         if resp.status_code not in (200, 201):
@@ -1850,10 +1858,14 @@ def _extract_instagram_comments(url: str) -> list:
         raw = resp.json()
         comments = []
         for c in raw:
+            text = c.get("message") or c.get("text", "")
+            if not text:
+                continue
+            user_info = c.get("user") or {}
             comments.append({
-                "author": c.get("ownerUsername", "Unknown"),
-                "text": c.get("text", ""),
-                "like_count": c.get("likesCount", 0) or 0,
+                "author": user_info.get("username") or c.get("ownerUsername", "Unknown"),
+                "text": text,
+                "like_count": c.get("likeCount") or c.get("likesCount", 0) or 0,
                 "is_pinned": False,
             })
 
