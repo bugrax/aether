@@ -1532,7 +1532,7 @@ def update_synthesis_pages(note_id: str, ai_summary: str, language: str = "en", 
             return
 
         # For each topic label, update or create a synthesis page
-        for label_row in labels[:3]:  # Max 3 topics per note
+        for label_row in labels:
             topic = label_row[0]
             _update_single_synthesis(user_id, vault_id, note_id, note_title, topic, ai_summary, language)
 
@@ -1571,12 +1571,12 @@ def _update_single_synthesis(user_id: str, vault_id: str, note_id: str, note_tit
         prompt = f"""Update this knowledge synthesis about "{topic}" with a new note. Output ONLY the updated markdown, no commentary.
 
 EXISTING SYNTHESIS ({note_count} notes):
-{old_content[:2000]}
+{old_content}
 
 NEW NOTE: "{note_title}"
-{ai_summary[:1000]}
+{ai_summary}
 
-Write entirely in {lang_name}. Keep existing insights, add new ones. Note contradictions. Update the sources list. Output ONLY markdown content."""
+Write entirely in {lang_name}. Keep existing insights, add new ones. Note contradictions or evolving perspectives. Update the sources list. Output ONLY markdown content."""
 
         result = _call_claude_cli(prompt)
         if result.startswith("⚠️"):
@@ -1600,7 +1600,7 @@ Write entirely in {lang_name}. Keep existing insights, add new ones. Note contra
         prompt = f"""Write a knowledge synthesis about "{topic}" based on this note. Output ONLY the markdown content, no meta-commentary.
 
 NOTE: "{note_title}"
-{ai_summary[:1500]}
+{ai_summary}
 
 Write entirely in {lang_name}. Use this structure:
 
@@ -2233,9 +2233,8 @@ def backfill_synthesis(self):
     import time as _time
     logger.info("📚 Starting synthesis backfill...")
 
-    # Get notes that have AI insight + topic labels but no synthesis link
     query = text("""
-        SELECT n.id, n.ai_insight,
+        SELECT n.id, n.ai_insight, n.vault_id,
                COALESCE(u.ai_language, u.language, 'en') as lang
         FROM notes n
         JOIN users u ON n.user_id = u.id
@@ -2253,12 +2252,13 @@ def backfill_synthesis(self):
         try:
             note_id = str(row[0])
             ai_summary = row[1] or ""
-            lang = row[2] or "en"
-            update_synthesis_pages(note_id, ai_summary, lang)
+            vault_id = str(row[2])
+            lang = row[3] or "en"
+            update_synthesis_pages(note_id, ai_summary, lang, vault_id=vault_id)
             count += 1
             if count % 10 == 0:
                 logger.info(f"📚 Synthesis backfill progress: {count}/{len(rows)}")
-            _time.sleep(2)  # Rate limit LLM calls
+            _time.sleep(2)
         except Exception as e:
             logger.warning(f"Synthesis backfill failed for {row[0]}: {e}")
 
@@ -2268,40 +2268,41 @@ def backfill_synthesis(self):
 
 @app.task(bind=True, max_retries=1)
 def generate_weekly_synthesis(self):
-    """Generate a weekly knowledge synthesis for each user. Runs Sunday 3am."""
+    """Generate a weekly knowledge synthesis per vault. Runs Sunday 3am."""
     logger.info("📊 Starting weekly synthesis generation...")
 
-    # Get all users with notes from the last 7 days
+    # Get all (vault, user) pairs with recent notes
     query = text("""
-        SELECT DISTINCT u.id, u.language, u.ai_language
-        FROM users u
-        JOIN notes n ON n.user_id = u.id
+        SELECT DISTINCT n.vault_id, n.user_id,
+               COALESCE(u.ai_language, u.language, 'en') as lang
+        FROM notes n
+        JOIN users u ON n.user_id = u.id
         WHERE n.deleted_at IS NULL
         AND n.created_at > NOW() - INTERVAL '7 days'
         AND n.status = 'ready'
     """)
     with engine.begin() as conn:
-        users = conn.execute(query).fetchall()
+        vaults = conn.execute(query).fetchall()
 
-    logger.info(f"📊 Found {len(users)} users with recent notes")
+    logger.info(f"📊 Found {len(vaults)} vault(s) with recent notes")
 
-    for user_row in users:
-        user_id = str(user_row[0])
-        lang = user_row[2] or user_row[1] or "en"
+    for vault_row in vaults:
+        vault_id = str(vault_row[0])
+        user_id = str(vault_row[1])
+        lang = vault_row[2] or "en"
         lang_name = "Turkish" if lang == "tr" else "English"
 
         try:
-            # Get this week's notes
             with engine.begin() as conn:
                 notes = conn.execute(
                     text("""
-                        SELECT title, substring(ai_insight from 1 for 200) as insight
+                        SELECT title, ai_insight
                         FROM notes
-                        WHERE user_id = :uid AND deleted_at IS NULL
+                        WHERE user_id = :uid AND vault_id = :vid AND deleted_at IS NULL
                         AND created_at > NOW() - INTERVAL '7 days' AND status = 'ready'
-                        ORDER BY created_at DESC LIMIT 20
+                        ORDER BY created_at DESC LIMIT 30
                     """),
-                    {"uid": user_id}
+                    {"uid": user_id, "vid": vault_id}
                 ).fetchall()
 
             if len(notes) < 2:
@@ -2340,17 +2341,205 @@ Be concise and insightful."""
                 title = f"Weekly Synthesis: {week_str}" if lang != "tr" else f"Haftalık Sentez: {week_str}"
                 with engine.begin() as conn:
                     conn.execute(
-                        text("""INSERT INTO notes (id, user_id, title, content, ai_insight, status, source_url, created_at, updated_at)
-                                VALUES (gen_random_uuid(), :uid, :title, :content, :insight, 'ready', '', NOW(), NOW())"""),
-                        {"uid": user_id, "title": title, "content": result, "insight": result}
+                        text("""INSERT INTO notes (id, user_id, vault_id, title, content, ai_insight, status, source_url, created_at, updated_at)
+                                VALUES (gen_random_uuid(), :uid, :vid, :title, :content, :insight, 'ready', '', NOW(), NOW())"""),
+                        {"uid": user_id, "vid": vault_id, "title": title, "content": result, "insight": result}
                     )
-                logger.info(f"📊 Weekly synthesis created for user {user_id}")
+                logger.info(f"📊 Weekly synthesis created for vault {vault_id}")
 
         except Exception as e:
-            logger.warning(f"Weekly synthesis failed for {user_id}: {e}")
+            logger.warning(f"Weekly synthesis failed for vault {vault_id}: {e}")
 
     logger.info("📊 Weekly synthesis generation complete")
-    return {"users_processed": len(users)}
+    return {"vaults_processed": len(vaults)}
+
+
+@app.task(bind=True, max_retries=1)
+def rebuild_synthesis_pages(self):
+    """Rewrite all synthesis pages from scratch using all linked notes' full summaries.
+    Cleans up stale links to deleted notes. Soft-deletes pages with zero remaining notes."""
+    import time as _time
+    logger.info("📚 Starting synthesis rebuild...")
+
+    with engine.begin() as conn:
+        pages = conn.execute(
+            text("SELECT id, vault_id, topic FROM synthesis_pages WHERE deleted_at IS NULL ORDER BY updated_at ASC")
+        ).fetchall()
+
+    logger.info(f"📚 Found {len(pages)} synthesis pages to rebuild")
+    rebuilt = 0
+    deleted = 0
+
+    for page_row in pages:
+        page_id = str(page_row[0])
+        vault_id = str(page_row[1])
+        topic = page_row[2]
+
+        try:
+            _rebuild_single_synthesis(page_id, vault_id, topic)
+            rebuilt += 1
+            if rebuilt % 5 == 0:
+                logger.info(f"📚 Rebuild progress: {rebuilt}/{len(pages)}")
+            _time.sleep(3)
+        except _SynthesisDeletedError:
+            deleted += 1
+        except Exception as e:
+            logger.warning(f"⚠️ Rebuild failed for synthesis '{topic}' ({page_id}): {e}")
+
+    logger.info(f"📚 Synthesis rebuild complete: {rebuilt} rebuilt, {deleted} deleted")
+    return {"rebuilt": rebuilt, "deleted": deleted, "total": len(pages)}
+
+
+class _SynthesisDeletedError(Exception):
+    pass
+
+
+def _rebuild_single_synthesis(page_id: str, vault_id: str, topic: str):
+    """Rebuild a single synthesis page from all linked non-deleted notes."""
+
+    with engine.begin() as conn:
+        # Clean up links to deleted notes
+        conn.execute(
+            text("""
+                DELETE FROM synthesis_notes
+                WHERE synthesis_page_id = :pid
+                AND note_id IN (SELECT id FROM notes WHERE deleted_at IS NOT NULL)
+            """),
+            {"pid": page_id}
+        )
+
+        # Get all remaining linked notes with full summaries
+        notes = conn.execute(
+            text("""
+                SELECT n.title, n.ai_insight
+                FROM synthesis_notes sn
+                JOIN notes n ON n.id = sn.note_id
+                WHERE sn.synthesis_page_id = :pid
+                AND n.deleted_at IS NULL
+                AND n.ai_insight IS NOT NULL
+                ORDER BY n.created_at ASC
+            """),
+            {"pid": page_id}
+        ).fetchall()
+
+    if not notes:
+        # No linked notes remain — soft-delete the synthesis page
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE synthesis_pages SET deleted_at = NOW() WHERE id = :pid"),
+                {"pid": page_id}
+            )
+        logger.info(f"📚 Soft-deleted empty synthesis '{topic}' ({page_id})")
+        raise _SynthesisDeletedError()
+
+    # Get language from the vault's user
+    with engine.begin() as conn:
+        lang_row = conn.execute(
+            text("""
+                SELECT COALESCE(u.ai_language, u.language, 'en')
+                FROM synthesis_pages sp
+                JOIN users u ON u.id = sp.user_id
+                WHERE sp.id = :pid
+            """),
+            {"pid": page_id}
+        ).fetchone()
+    lang_name = "Turkish" if (lang_row and lang_row[0] == "tr") else "English"
+
+    # Build full prompt with ALL notes
+    note_entries = []
+    sources = []
+    for i, n in enumerate(notes, 1):
+        title = n[0] or "Untitled"
+        insight = n[1] or ""
+        note_entries.append(f"{i}. \"{title}\":\n{insight}")
+        sources.append(f"- {title}")
+
+    notes_text = "\n\n".join(note_entries)
+    sources_text = "\n".join(sources)
+
+    prompt = f"""Write a comprehensive knowledge synthesis about "{topic}" based on {len(notes)} notes. Output ONLY the markdown content, no meta-commentary.
+
+NOTES:
+{notes_text}
+
+Write entirely in {lang_name}. Use this structure:
+
+## Overview
+Comprehensive summary of what is known about {topic} across all notes.
+
+## Key Insights
+Main takeaways as bullet points — group related ideas, highlight patterns.
+
+## Contradictions & Evolving Perspectives
+Any conflicting viewpoints or how understanding has evolved across notes.
+
+## Sources
+{sources_text}
+
+Output ONLY the synthesis content."""
+
+    result = _call_claude_cli(prompt)
+    if result.startswith("⚠️"):
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if gemini_key:
+            result = _call_gemini_api(prompt, gemini_key)
+
+    if result and not result.startswith("⚠️"):
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE synthesis_pages SET content = :content, note_count = :nc, updated_at = NOW() WHERE id = :pid"),
+                {"content": result, "nc": len(notes), "pid": page_id}
+            )
+        logger.info(f"📚 Rebuilt synthesis '{topic}' ({len(notes)} notes)")
+
+
+@app.task(bind=True, max_retries=2, default_retry_delay=30)
+def on_note_deleted(self, note_id: str, vault_id: str = None):
+    """Clean up synthesis pages when a note is deleted. Rebuilds affected pages."""
+    import time as _time
+    logger.info(f"📚 Cleaning synthesis for deleted note {note_id}")
+
+    with engine.begin() as conn:
+        # Find all synthesis pages linked to this note
+        linked = conn.execute(
+            text("""
+                SELECT sn.synthesis_page_id, sp.topic, sp.vault_id
+                FROM synthesis_notes sn
+                JOIN synthesis_pages sp ON sp.id = sn.synthesis_page_id
+                WHERE sn.note_id = :nid AND sp.deleted_at IS NULL
+            """),
+            {"nid": note_id}
+        ).fetchall()
+
+    if not linked:
+        logger.info(f"📚 No synthesis pages linked to note {note_id}")
+        return
+
+    logger.info(f"📚 Found {len(linked)} synthesis page(s) to update")
+
+    for row in linked:
+        page_id = str(row[0])
+        topic = row[1]
+        page_vault_id = str(row[2])
+
+        try:
+            # Remove the link
+            with engine.begin() as conn:
+                conn.execute(
+                    text("DELETE FROM synthesis_notes WHERE synthesis_page_id = :pid AND note_id = :nid"),
+                    {"pid": page_id, "nid": note_id}
+                )
+
+            # Rebuild the page (handles zero-note soft-delete)
+            _rebuild_single_synthesis(page_id, page_vault_id, topic)
+            _time.sleep(2)
+
+        except _SynthesisDeletedError:
+            pass
+        except Exception as e:
+            logger.warning(f"⚠️ Synthesis cleanup failed for page {page_id}: {e}")
+
+    logger.info(f"📚 Synthesis cleanup complete for note {note_id}")
 
 
 @app.task(bind=True, max_retries=1)

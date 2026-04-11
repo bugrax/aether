@@ -42,6 +42,10 @@ app.conf.update(
             "task": "tasks.generate_weekly_synthesis",
             "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sunday 3am UTC
         },
+        "rebuild-synthesis": {
+            "task": "tasks.rebuild_synthesis_pages",
+            "schedule": crontab(hour=4, minute=0),  # Daily at 4am UTC
+        },
     },
 )
 

@@ -285,7 +285,54 @@ func DeleteNote(c *gin.Context) {
 		return
 	}
 
+	// Trigger synthesis cleanup in the background
+	if RedisClient != nil {
+		_ = enqueueNoteDeleted(context.Background(), noteID, vault.ID.String())
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Note deleted"})
+}
+
+// enqueueNoteDeleted publishes an on_note_deleted task to clean up synthesis pages.
+func enqueueNoteDeleted(ctx context.Context, noteID, vaultID string) error {
+	taskID := uuid.New().String()
+	body := []interface{}{
+		[]interface{}{noteID},
+		map[string]interface{}{"vault_id": vaultID},
+		map[string]interface{}{"callbacks": nil, "errbacks": nil, "chain": nil, "chord": nil},
+	}
+	bodyJSON, _ := json.Marshal(body)
+
+	celeryMsg := map[string]interface{}{
+		"body":             string(bodyJSON),
+		"content-encoding": "utf-8",
+		"content-type":     "application/json",
+		"headers": map[string]interface{}{
+			"lang":       "py",
+			"task":       "tasks.on_note_deleted",
+			"id":         taskID,
+			"root_id":    taskID,
+			"parent_id":  nil,
+			"group":      nil,
+			"argsrepr":   "(" + noteID + ",)",
+			"kwargsrepr": "{'vault_id': '" + vaultID + "'}",
+			"origin":     "aether-api@go",
+		},
+		"properties": map[string]interface{}{
+			"correlation_id": taskID,
+			"reply_to":       "",
+			"delivery_mode":  2,
+			"delivery_info": map[string]interface{}{
+				"exchange":    "",
+				"routing_key": "celery",
+			},
+			"priority":     0,
+			"body_encoding": "utf-8",
+			"delivery_tag":  taskID,
+		},
+	}
+	celeryJSON, _ := json.Marshal(celeryMsg)
+	return RedisClient.LPush(ctx, "celery", celeryJSON).Err()
 }
 
 // GetNoteRevisions returns the version history for a note.
