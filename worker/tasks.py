@@ -40,6 +40,12 @@ DATABASE_URL = (
 )
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
+# ── Feature Flags ──────────────────────────────────────
+# When disabled, skips the expensive AI knowledge-graph steps
+# (community insights, synthesis pages, entity extraction) to save tokens.
+# Embeddings, source/topic labels, and related-notes linking still run.
+KNOWLEDGE_ENABLED = os.getenv("KNOWLEDGE_ENABLED", "true").lower() == "true"
+
 # ── MinIO / S3 Configuration ──────────────────────────
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "s3.relayhaus.org")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
@@ -2059,14 +2065,15 @@ def process_url(self, note_id: str, url: str, language: str = "en", vault_id: st
         # Step 3: Generate AI summary
         ai_summary = call_llm(extracted["content"], instruction="Summarize", language=language)
 
-        # Step 4: Extract comments
+        # Step 4: Extract comments (community insights gated by KNOWLEDGE_ENABLED)
         comments = extract_comments(url)
         if comments:
             update_note_status(note_id, "processing",
                                community_comments=json.dumps(comments, ensure_ascii=False))
-            community_section = generate_community_insights(comments, language)
-            if community_section and not community_section.startswith("⚠️"):
-                ai_summary = ai_summary + "\n\n---\n\n" + community_section
+            if KNOWLEDGE_ENABLED:
+                community_section = generate_community_insights(comments, language)
+                if community_section and not community_section.startswith("⚠️"):
+                    ai_summary = ai_summary + "\n\n---\n\n" + community_section
 
         # Step 5: Generate a clean AI title
         ai_title = generate_title(extracted["title"], ai_summary, language)
@@ -2088,11 +2095,14 @@ def process_url(self, note_id: str, url: str, language: str = "en", vault_id: st
         # Step 9: Find and link related notes
         find_related_notes(note_id, vault_id=vault_id)
 
-        # Step 10: Update or create synthesis pages for this note's topics
-        update_synthesis_pages(note_id, ai_summary, language, vault_id=vault_id)
+        if KNOWLEDGE_ENABLED:
+            # Step 10: Update or create synthesis pages for this note's topics
+            update_synthesis_pages(note_id, ai_summary, language, vault_id=vault_id)
 
-        # Step 11: Extract entities from AI insight
-        extract_entities(note_id, ai_summary, language, vault_id=vault_id)
+            # Step 11: Extract entities from AI insight
+            extract_entities(note_id, ai_summary, language, vault_id=vault_id)
+        else:
+            logger.info(f"⏭️  KNOWLEDGE_ENABLED=false — skipping synthesis + entity extraction for {note_id}")
 
         logger.info(f"✅ Note {note_id} processed successfully")
         log_activity(note_id, "note_processed", update_fields.get("title", extracted["title"]), "AI processing complete", vault_id=vault_id)

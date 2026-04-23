@@ -14,6 +14,8 @@ try:
 except ImportError:
     pass
 
+KNOWLEDGE_ENABLED = os.getenv("KNOWLEDGE_ENABLED", "true").lower() == "true"
+
 # ── Celery App ─────────────────────────────────────────
 app = Celery(
     "aether-worker",
@@ -21,6 +23,22 @@ app = Celery(
     backend=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1"),
     include=["tasks"],
 )
+
+beat_schedule = {
+    "backfill-relations": {
+        "task": "tasks.backfill_relations",
+        "schedule": 90,  # Every 90 seconds
+    },
+}
+if KNOWLEDGE_ENABLED:
+    beat_schedule["weekly-synthesis"] = {
+        "task": "tasks.generate_weekly_synthesis",
+        "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sunday 3am UTC
+    }
+    beat_schedule["rebuild-synthesis"] = {
+        "task": "tasks.rebuild_synthesis_pages",
+        "schedule": crontab(hour=4, minute=0),  # Daily at 4am UTC
+    }
 
 # ── Configuration ──────────────────────────────────────
 app.conf.update(
@@ -33,20 +51,7 @@ app.conf.update(
     task_acks_late=True,           # Re-queue if worker crashes mid-task
     worker_prefetch_multiplier=1,  # One task at a time for LLM workloads
     result_expires=3600,           # Results expire after 1 hour
-    beat_schedule={
-        "backfill-relations": {
-            "task": "tasks.backfill_relations",
-            "schedule": 90,  # Every 90 seconds
-        },
-        "weekly-synthesis": {
-            "task": "tasks.generate_weekly_synthesis",
-            "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sunday 3am UTC
-        },
-        "rebuild-synthesis": {
-            "task": "tasks.rebuild_synthesis_pages",
-            "schedule": crontab(hour=4, minute=0),  # Daily at 4am UTC
-        },
-    },
+    beat_schedule=beat_schedule,
 )
 
 if __name__ == "__main__":

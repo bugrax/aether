@@ -92,6 +92,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-}
       MINIO_BUCKET: ${MINIO_BUCKET:-aether-thumbnails}
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-https://s3.relayhaus.org/aether-thumbnails}
+      KNOWLEDGE_ENABLED: ${KNOWLEDGE_ENABLED:-true}
     volumes:
       - /root/.ssh:/root/.ssh:ro
       - ./firebase-service-account.json:/app/firebase-service-account.json:ro
