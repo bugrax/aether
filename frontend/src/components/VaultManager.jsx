@@ -151,7 +151,7 @@ export default function VaultManager({ onClose }) {
             <div style={{ background: 'var(--surface)', padding: 'var(--space-5)', borderRadius: 'var(--radius-lg)', maxWidth: 400, border: '1px solid var(--error)' }}>
               <h3 style={{ color: 'var(--error)', margin: '0 0 var(--space-3)' }}>Delete Vault "{deleteConfirm.name}"?</h3>
               <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.875rem', marginBottom: 'var(--space-4)' }}>
-                This will permanently delete ALL notes, labels, entities, synthesis pages, and activity in this vault. This cannot be undone.
+                This will permanently delete ALL notes, labels, entities, and activity in this vault. This cannot be undone.
               </p>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => handleDelete(deleteConfirm)} disabled={busy}

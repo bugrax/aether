@@ -37,9 +37,9 @@ function buildNativeUser(result, tokenResult) {
     displayName: result.user?.displayName,
     photoURL: result.user?.photoUrl,
     _nativeToken: tokenResult.token,
-    getIdToken: async () => {
+    getIdToken: async (force = false) => {
       const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
-      const t = await FirebaseAuthentication.getIdToken({ forceRefresh: false });
+      const t = await FirebaseAuthentication.getIdToken({ forceRefresh: !!force });
       return t.token;
     },
   };

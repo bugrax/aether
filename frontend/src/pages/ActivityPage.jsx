@@ -7,7 +7,6 @@ import { trackScreenView } from '../analytics';
 const ACTION_ICONS = {
   note_processed: { icon: '✓', color: 'var(--secondary)', label: 'Note Processed' },
   relation_found: { icon: '🔗', color: 'var(--primary)', label: 'Relations Found' },
-  synthesis_created: { icon: '📚', color: 'var(--tertiary)', label: 'Synthesis Created' },
   entities_extracted: { icon: '🧬', color: '#FF6B6B', label: 'Entities Extracted' },
   default: { icon: '•', color: 'var(--outline)', label: 'Activity' },
 };

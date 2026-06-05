@@ -158,8 +158,6 @@ func DeleteVault(c *gin.Context) {
 	// Cascade delete everything in this vault
 	tx.Exec("DELETE FROM note_entities WHERE vault_id = ?", vault.ID)
 	tx.Exec("DELETE FROM note_relations WHERE vault_id = ?", vault.ID)
-	tx.Exec("DELETE FROM synthesis_notes WHERE synthesis_page_id IN (SELECT id FROM synthesis_pages WHERE vault_id = ?)", vault.ID)
-	tx.Exec("DELETE FROM synthesis_pages WHERE vault_id = ?", vault.ID)
 	tx.Exec("DELETE FROM note_labels WHERE note_id IN (SELECT id FROM notes WHERE vault_id = ?)", vault.ID)
 	tx.Exec("DELETE FROM note_revisions WHERE note_id IN (SELECT id FROM notes WHERE vault_id = ?)", vault.ID)
 	tx.Exec("DELETE FROM activity_logs WHERE vault_id = ?", vault.ID)
@@ -248,7 +246,6 @@ func MoveNote(c *gin.Context) {
 	// Delete AI-derived data
 	tx.Exec("DELETE FROM note_entities WHERE note_id = ?", noteID)
 	tx.Exec("DELETE FROM note_relations WHERE note_id_a = ? OR note_id_b = ?", noteID, noteID)
-	tx.Exec("DELETE FROM synthesis_notes WHERE note_id = ?", noteID)
 	// Remove any labels that were on this note (labels are per-vault)
 	tx.Exec("DELETE FROM note_labels WHERE note_id = ?", noteID)
 

@@ -29,16 +29,16 @@ A personal knowledge engine. Users save URLs (YouTube, Instagram, articles, etc.
 ```
 aether/
 ├── backend/          # Go API server (Gin framework)
-│   ├── handlers/     # Route handlers (notes.go, users.go, chat.go, graph.go, entities.go, synthesis.go, activity.go, search.go)
-│   ├── middleware/    # Auth middleware (Firebase token validation)
-│   ├── models/       # GORM models (note.go, user.go, entity.go, note_relation.go, synthesis_page.go, activity_log.go)
+│   ├── handlers/     # Route handlers (notes.go, users.go, vaults.go, chat.go, graph.go, entities.go, labels.go, activity.go, search.go, sse.go, desktop_auth.go)
+│   ├── middleware/    # Auth middleware (Firebase token validation) + VaultResolver (X-Vault-Id)
+│   ├── models/       # GORM models (note.go, note_revision.go, user.go, vault.go, label.go, entity.go, note_relation.go, chat_message.go, activity_log.go)
 │   ├── database/     # DB connection
 │   └── main.go       # Routes, CORS, server setup
 ├── frontend/         # React SPA + Capacitor iOS
 │   ├── src/
-│   │   ├── pages/    # DashboardPage, VaultPage, EditorPage, SharePage, SettingsPage, LoginPage, GraphPage, EntitiesPage, EntityDetailPage, ChatPage, SynthesisViewPage, OnboardingPage, SharedNotePage
-│   │   ├── contexts/ # AuthContext (Firebase auth), LanguageContext (i18n)
-│   │   ├── components/ # Sidebar, AetherChat, LabelManager, SplashScreen
+│   │   ├── pages/    # DashboardPage, VaultPage, EditorPage, SharePage, SettingsPage, LoginPage, GraphPage, EntitiesPage, EntityDetailPage, ChatPage, ActivityPage, DesktopAuthPage, OnboardingPage, SharedNotePage
+│   │   ├── contexts/ # AuthContext (Firebase auth), LanguageContext (i18n), VaultContext (multi-vault)
+│   │   ├── components/ # Sidebar, AetherChat, LabelManager, SplashScreen, VaultManager, VaultSwitcher, MobileVaultSheet, editor/ (TipTap rich-text)
 │   │   ├── i18n/     # en.js, tr.js translation files
 │   │   ├── api.js    # API client with auth token
 │   │   └── firebase.js # Firebase auth (popup for web, native plugin for iOS)
@@ -50,7 +50,7 @@ aether/
 │   └── vite.config.js
 ├── worker/           # Python Celery worker
 │   ├── tasks.py      # URL processing, AI summarization, entity extraction, embedding
-│   └── celery_app.py # Celery config + Beat schedule (weekly synthesis, relation backfill)
+│   └── celery_app.py # Celery config + Beat schedule (relation backfill)
 ├── extension/        # Chrome browser extension
 ├── landing/          # Static landing page (aether.relayhaus.org)
 └── docker-compose.yml
@@ -102,9 +102,10 @@ aether/
 - `@capacitor-firebase/authentication` handles native Google Sign-In
 - `skipNativeAuth: false` in capacitor.config.ts — native Firebase Auth signs in automatically
 - **DO NOT call `signInWithCredential`** from JS SDK — it hangs in Capacitor WebView (`capacitor://` scheme blocks network requests)
-- Instead: get token from native plugin via `FirebaseAuthentication.getIdToken()`
-- Token refresh: AuthContext refreshes every 45min + on foreground via `visibilitychange`
-- AppDelegate also writes token to App Group on auth state change
+- Instead: get token from native plugin via `FirebaseAuthentication.getIdToken({ forceRefresh: true })`
+- Token refresh (3 layers): (1) api.js force-refreshes + retries **once on any 401**; (2) AuthContext refreshes on foreground via `@capacitor/app` `appStateChange` (reliable in WKWebView, unlike `visibilitychange`); (3) a 45-min `setInterval` while foregrounded
+- `buildNativeUser.getIdToken(force)` honors the force flag — periodic refresh after a login (not just relaunch) truly force-refreshes
+- AppDelegate also writes token to App Group on auth state change + `applicationWillEnterForeground` (for the Share Extension)
 
 ### Building for iOS
 ```bash
@@ -131,26 +132,25 @@ npm run build && npx cap sync ios
 
 ## Worker — AI Pipeline
 
-### URL Processing Flow (12-step pipeline)
+### URL Processing Flow (pipeline)
 ```
 POST /api/v1/share → Create note (status: processing) → Redis queue → Celery worker
   1. extract_content_from_url()     — YouTube (yt-dlp), Instagram (Apify), Twitter (Apify), Articles (BeautifulSoup)
   2. call_llm()                     — Claude CLI (primary) or Gemini 2.5 Flash (fallback)
   3. extract_comments()             — YouTube/Instagram/Twitter comments
-  4. generate_community_insights()  — AI analysis of community discussion
+  4. generate_community_insights()  — AI analysis of community discussion (appended to summary)
   5. generate_title()               — Clean AI-generated title (5-10 words)
-  6. Update note status → ready
-  7. generate_embedding()           — sentence-transformers (384 dims, pgvector)
-  8. auto_label_source()            — Label by source domain
-  9. auto_label_topics()            — AI extracts 2-4 topic labels
- 10. find_related_notes()           — pgvector cosine similarity → note_relations (threshold 0.3)
- 11. update_synthesis_pages()       — Create/update topic synthesis pages
- 12. extract_entities()             — AI extracts people, concepts, tools, books, etc. → entities + note_entities
+  6. Update note status → ready, then generate_embedding() (sentence-transformers, 384 dims, pgvector)
+  7. auto_label_source()            — Label by source domain
+  8. auto_label_topics()            — AI extracts 2-4 topic labels
+  9. find_related_notes()           — pgvector cosine similarity → note_relations (threshold 0.3) → powers the Graph
+ 10. extract_entities()             — AI extracts people, concepts, tools, books, etc. → entities + note_entities → powers Entities + the entity-Graph
 ```
+> **Knowledge synthesis was removed** (it was too token-heavy). Graph + Entities remain. There is **no `KNOWLEDGE_ENABLED` flag** — every step runs unconditionally.
 
 ### Periodic Tasks (Celery Beat)
-- `backfill_relations` — every 90 seconds, finds missing note relations
-- `generate_weekly_synthesis` — Sunday 3am, creates weekly knowledge digest
+- `backfill_relations` — every 90 seconds, finds missing note relations (keeps the Graph healed)
+- `backfill_entities` — not scheduled; run manually once to populate entities for notes that were processed before entity extraction was enabled
 
 ### Instagram Processing
 - Uses **Apify Instagram Scraper** (`APIFY_TOKEN` env var)
@@ -183,6 +183,7 @@ These override docker-compose.yml defaults. When adding new env vars:
 - `VITE_API_BASE_URL`: Must be `https://app.aether.relayhaus.org/api/v1`
 - `GEMINI_API_KEY`: For YouTube transcription + Instagram vision
 - `APIFY_TOKEN`: For Instagram carousel scraping
+- `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_BUCKET` / `MINIO_PUBLIC_URL`: S3-compatible thumbnail object storage
 
 ## Frontend Build — Web vs iOS
 
@@ -200,12 +201,14 @@ These override docker-compose.yml defaults. When adding new env vars:
 - `thumbnail_url` column: `text` type (not varchar) — stores base64 data URIs
 - `share_token` column: partial unique index `WHERE share_token != ''`
 - `ai_language` column: separate from `language` (UI language)
-- `entities` table: extracted entities (name, type, description, note_count) per user, deduplicated by name+type
+- `vaults` table: multi-vault containers; every content table is vault-scoped via `vault_id` (resolved from the `X-Vault-Id` header by VaultResolver middleware)
+- `entities` table: extracted entities (name, type, description, note_count) per vault, deduplicated by name+type
 - `note_entities` table: junction between notes and entities with context snippet
-- `note_relations` table: bidirectional note links with similarity score (0-1)
-- `synthesis_pages` table: topic-based knowledge synthesis with contributing notes
-- `activity_logs` table: processing events (note_processed, relation_found, synthesis_created, entities_extracted)
+- `note_relations` table: bidirectional note links with similarity score (0-1) — powers the Graph
+- `note_revisions` table: version history for note edits
+- `activity_logs` table: processing events (note_created, note_processed, relation_found, entities_extracted)
 - Entity types: person, concept, tool, book, film, music, website, location, organization, event
+- **Legacy**: `synthesis_pages` / `synthesis_notes` tables are orphaned (synthesis feature removed); GORM no longer migrates or touches them. Drop manually only if desired.
 
 ## Design System — Stitch MCP Integration
 
@@ -290,7 +293,7 @@ When adding new features, endpoints, pages, or making architectural changes, upd
 7. **Instagram CDN URLs expire** — always convert to base64 data URI for thumbnails
 8. **`navigator.share`/`navigator.clipboard` don't work in Capacitor** — use `@capacitor/share` plugin
 9. **Firebase `getRedirectResult()` hangs in Capacitor** — don't await it before `onAuthStateChanged`
-10. **Token refresh is critical** — Firebase tokens expire in 1 hour, must auto-refresh
+10. **Token refresh is critical** — Firebase tokens expire in 1 hour. api.js force-refreshes + retries **once on any 401**; AuthContext refreshes on `@capacitor/app` `appStateChange` (NOT `visibilitychange`, which is unreliable in a backgrounded WKWebView)
 11. **Firebase `signInWithPopup` does NOT work in Tauri WKWebView** — use browser-based auth flow with session polling
 12. **Tauri `tauri://localhost` origin must be in CORS** — or all API calls fail silently
 13. **`npm run build:desktop` does NOT rebuild Vite** — run `npm run build` first, or use `rm -rf dist && npm run build && npm run build:desktop`

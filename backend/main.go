@@ -141,10 +141,6 @@ func main() {
 		// Activity Log
 		v1.GET("/activity", handlers.GetActivityLog)
 
-		// Synthesis Pages
-		v1.GET("/synthesis", handlers.ListSynthesisPages)
-		v1.GET("/synthesis/:id", handlers.GetSynthesisPage)
-
 		// Note Relations
 		v1.GET("/notes/:id/related", handlers.GetRelatedNotes)
 

@@ -3,12 +3,21 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api
 let authToken = null;
 let currentVaultId = null;
 
+// Callback invoked on a 401 to obtain a freshly force-refreshed token.
+// Registered by AuthContext so api.js can recover from expired tokens
+// (Firebase ID tokens last 1h) without importing Firebase directly.
+let onUnauthorized = null;
+
 export function setAuthToken(token) {
   authToken = token;
 }
 
 export function getAuthToken() {
   return authToken;
+}
+
+export function setOnUnauthorized(fn) {
+  onUnauthorized = fn;
 }
 
 export function setCurrentVaultId(vaultId) {
@@ -23,26 +32,31 @@ export function getCurrentVaultId() {
   try { return localStorage.getItem('aether_current_vault_id'); } catch { return null; }
 }
 
+function buildHeaders(token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const vaultId = getCurrentVaultId();
+  if (vaultId) headers['X-Vault-Id'] = vaultId;
+  return headers;
+}
+
 async function request(method, path, body = null) {
-  const headers = {
-    'Content-Type': 'application/json',
+  const options = (token) => {
+    const o = { method, headers: buildHeaders(token) };
+    if (body) o.body = JSON.stringify(body);
+    return o;
   };
 
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
+  let res = await fetch(`${API_BASE}${path}`, options(authToken));
+
+  // Token expired — force-refresh once via the registered callback and retry.
+  if (res.status === 401 && onUnauthorized) {
+    const fresh = await onUnauthorized();
+    if (fresh) {
+      res = await fetch(`${API_BASE}${path}`, options(fresh));
+    }
   }
 
-  const vaultId = getCurrentVaultId();
-  if (vaultId) {
-    headers['X-Vault-Id'] = vaultId;
-  }
-
-  const options = { method, headers };
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
-
-  const res = await fetch(`${API_BASE}${path}`, options);
   const data = await res.json();
 
   if (!res.ok) {
@@ -134,12 +148,6 @@ export const activityAPI = {
   list: () => request('GET', '/activity'),
 };
 
-// ── Synthesis Pages ──────────────────────────────────
-export const synthesisAPI = {
-  list: () => request('GET', '/synthesis'),
-  get: (id) => request('GET', `/synthesis/${id}`),
-};
-
 // ── Entities ─────────────────────────────────────────
 export const entitiesAPI = {
   list: (params = {}) => {
@@ -155,22 +163,28 @@ export const chatAPI = {
     try {
       // Debug logs removed for production
 
-      const headers = { 'Content-Type': 'application/json' };
-      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-
       const controller = new AbortController();
       const timeout = setTimeout(() => {
         console.log('[Chat] TIMEOUT after 90s');
         controller.abort();
       }, 90000);
 
-      console.log('[Chat] Fetching:', `${API_BASE}/chat`);
-      const resp = await fetch(`${API_BASE}/chat`, {
+      const chatBody = JSON.stringify({ message, session_id: sessionId, language });
+      const doChatFetch = (token) => fetch(`${API_BASE}/chat`, {
         method: 'POST',
-        headers,
-        body: JSON.stringify({ message, session_id: sessionId, language }),
+        headers: buildHeaders(token),
+        body: chatBody,
         signal: controller.signal,
       });
+
+      console.log('[Chat] Fetching:', `${API_BASE}/chat`);
+      let resp = await doChatFetch(authToken);
+
+      // Token expired — force-refresh once and retry before reading the stream.
+      if (resp.status === 401 && onUnauthorized) {
+        const fresh = await onUnauthorized();
+        if (fresh) resp = await doChatFetch(fresh);
+      }
 
       clearTimeout(timeout);
       console.log('[Chat] Response status:', resp.status, resp.statusText);

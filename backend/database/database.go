@@ -53,8 +53,6 @@ func Connect(cfg *config.Config) {
 		&models.NoteRevision{},
 		&models.Label{},
 		&models.ChatMessage{},
-		&models.SynthesisPage{},
-		&models.SynthesisNote{},
 		&models.NoteRelation{},
 		&models.ActivityLog{},
 		&models.Entity{},
@@ -89,7 +87,7 @@ func preMigrateVaultID() {
 	DB.Exec(`CREATE INDEX IF NOT EXISTS idx_vaults_deleted_at ON vaults(deleted_at)`)
 
 	// Add vault_id column to all scoped tables (nullable for now)
-	tables := []string{"notes", "labels", "entities", "note_entities", "note_relations", "synthesis_pages", "activity_logs", "chat_messages"}
+	tables := []string{"notes", "labels", "entities", "note_entities", "note_relations", "activity_logs", "chat_messages"}
 	for _, table := range tables {
 		DB.Exec("ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS vault_id uuid")
 	}
@@ -130,7 +128,7 @@ func backfillDefaultVaults() {
 		}
 
 		// 2. Backfill vault_id for all existing content
-		tables := []string{"notes", "labels", "entities", "synthesis_pages", "activity_logs", "chat_messages"}
+		tables := []string{"notes", "labels", "entities", "activity_logs", "chat_messages"}
 		for _, table := range tables {
 			tx.Exec("UPDATE "+table+" SET vault_id = ?::uuid WHERE user_id = ?::uuid AND (vault_id IS NULL OR vault_id = '00000000-0000-0000-0000-000000000000')", vaultID, userID)
 		}

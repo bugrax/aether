@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useVault } from '../contexts/VaultContext';
-import { notesAPI, synthesisAPI, activityAPI, entitiesAPI } from '../api';
+import { notesAPI, activityAPI, entitiesAPI } from '../api';
 import { trackNoteOpen, trackLabelFilter, trackScreenView } from '../analytics';
 
 function translateLabel(name, t) {
@@ -20,7 +20,6 @@ export default function DashboardPage() {
   const [stats, setStats] = useState({ total: 0, thisWeek: 0, processing: 0 });
   const [topLabels, setTopLabels] = useState([]);
   const [recentNotes, setRecentNotes] = useState([]);
-  const [synthPages, setSynthPages] = useState([]);
   const [activities, setActivities] = useState([]);
   const [topEntities, setTopEntities] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,14 +38,12 @@ export default function DashboardPage() {
   async function loadDashboard() {
     setLoading(true);
     try {
-      const [statsData, notesData, synthData, actData, entData] = await Promise.all([
+      const [statsData, notesData, actData, entData] = await Promise.all([
         notesAPI.stats(),
         notesAPI.list({ limit: 3, offset: 0 }),
-        synthesisAPI.list().catch(() => ({ pages: [] })),
         activityAPI.list().catch(() => ({ activities: [] })),
         entitiesAPI.list().catch(() => ({ entities: [] })),
       ]);
-      setSynthPages((synthData.pages || []).slice(0, 5));
       setActivities((actData.activities || []).slice(0, 10));
       setTopEntities((entData.entities || []).slice(0, 8));
 
@@ -210,26 +207,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Synthesis Pages */}
-      {synthPages.length > 0 && (
-        <div className="dash-section">
-          <h2 className="dash-section-title">{lang === 'tr' ? 'Bilgi Sentezleri' : 'Knowledge Synthesis'}</h2>
-          <div className="dash-recent">
-            {synthPages.map(page => (
-              <article key={page.id} className="dash-recent-card" style={{ borderLeft: '3px solid var(--primary)' }}
-                onClick={() => navigate(`/vault/synthesis/${page.id}`)}>
-                <div className="dash-recent-info">
-                  <span className="dash-recent-title">{page.title}</span>
-                  <span className="dash-recent-label" style={{ color: 'var(--primary)' }}>
-                    {page.note_count} {lang === 'tr' ? 'not' : 'notes'} · {translateLabel(page.topic, t)}
-                  </span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Recent Notes */}
       {recentNotes.length > 0 && (
         <div className="dash-section">
@@ -278,7 +255,7 @@ export default function DashboardPage() {
                   width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
                   background: a.action === 'note_processed' ? 'var(--secondary)' :
                     a.action === 'relation_found' ? 'var(--primary)' :
-                    a.action === 'synthesis_created' ? 'var(--tertiary)' : 'var(--outline)',
+                    a.action === 'entities_extracted' ? 'var(--tertiary)' : 'var(--outline)',
                 }} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {a.title}

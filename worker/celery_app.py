@@ -7,14 +7,11 @@ Start the worker with:
 
 import os
 from celery import Celery
-from celery.schedules import crontab
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
-
-KNOWLEDGE_ENABLED = os.getenv("KNOWLEDGE_ENABLED", "true").lower() == "true"
 
 # ── Celery App ─────────────────────────────────────────
 app = Celery(
@@ -30,15 +27,6 @@ beat_schedule = {
         "schedule": 90,  # Every 90 seconds
     },
 }
-if KNOWLEDGE_ENABLED:
-    beat_schedule["weekly-synthesis"] = {
-        "task": "tasks.generate_weekly_synthesis",
-        "schedule": crontab(hour=3, minute=0, day_of_week=0),  # Sunday 3am UTC
-    }
-    beat_schedule["rebuild-synthesis"] = {
-        "task": "tasks.rebuild_synthesis_pages",
-        "schedule": crontab(hour=4, minute=0),  # Daily at 4am UTC
-    }
 
 # ── Configuration ──────────────────────────────────────
 app.conf.update(

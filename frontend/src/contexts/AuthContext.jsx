@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { setAuthToken, getAuthToken, usersAPI } from '../api';
+import { setAuthToken, getAuthToken, setOnUnauthorized, usersAPI } from '../api';
 import { Capacitor } from '@capacitor/core';
 
 const AuthContext = createContext(null);
@@ -24,10 +24,10 @@ export function AuthProvider({ children }) {
   const userRef = useRef(null);
   userRef.current = user;
 
-  // Refresh token helper
+  // Refresh token helper — force-refreshes and returns the fresh token (or null)
   const refreshToken = useCallback(async () => {
     const u = userRef.current;
-    if (!u || isDevMode) return;
+    if (!u || isDevMode) return null;
     try {
       let token;
       if (u.getIdToken) {
@@ -36,11 +36,19 @@ export function AuthProvider({ children }) {
       if (token) {
         setAuthToken(token);
         broadcastToken(token);
+        return token;
       }
     } catch (err) {
       console.error('Token refresh failed:', err);
     }
+    return null;
   }, []);
+
+  // Let api.js recover from 401s by force-refreshing the token and retrying.
+  useEffect(() => {
+    setOnUnauthorized(refreshToken);
+    return () => setOnUnauthorized(null);
+  }, [refreshToken]);
 
   // Periodic token refresh (every 45 min) + on foreground
   useEffect(() => {
@@ -49,15 +57,28 @@ export function AuthProvider({ children }) {
     // Refresh every 45 minutes
     refreshTimerRef.current = setInterval(refreshToken, 45 * 60 * 1000);
 
-    // Refresh when app comes to foreground
+    // Refresh when app comes to foreground (web/desktop tab visibility)
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') refreshToken();
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
+    // Native (iOS/Android): visibilitychange + JS timers are unreliable in a
+    // backgrounded WKWebView, so use the Capacitor App plugin's appStateChange
+    // for a dependable foreground refresh.
+    let appListener;
+    if (Capacitor.isNativePlatform()) {
+      import('@capacitor/app').then(({ App }) => {
+        App.addListener('appStateChange', ({ isActive }) => {
+          if (isActive) refreshToken();
+        }).then((listener) => { appListener = listener; });
+      }).catch((err) => console.warn('App plugin unavailable:', err));
+    }
+
     return () => {
       clearInterval(refreshTimerRef.current);
       document.removeEventListener('visibilitychange', handleVisibility);
+      if (appListener) appListener.remove();
     };
   }, [user, refreshToken]);
 
