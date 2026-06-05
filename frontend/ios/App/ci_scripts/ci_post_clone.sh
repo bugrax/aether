@@ -16,9 +16,12 @@ echo "npm: $(npm --version)"
 # Install dependencies
 npm ci
 
-# Build the frontend with production env vars
+# Build the frontend with production env vars.
+# IMPORTANT: do NOT set DOCKER_BUILD=1 here — this is an iOS build and that flag
+# externalizes @capacitor-firebase/authentication (and other native plugins),
+# which breaks native auth/token-refresh in the shipped app. DOCKER_BUILD=1 is
+# only for the web/Docker build (set in frontend/Dockerfile).
 echo "🔨 Building frontend..."
-DOCKER_BUILD=1 \
 VITE_API_BASE_URL=https://app.aether.relayhaus.org/api/v1 \
 VITE_FIREBASE_API_KEY=AIzaSyAtsugssSQD9A9GKj6rMQewJdpYpQCS1ro \
 VITE_FIREBASE_AUTH_DOMAIN=aether-8717a.firebaseapp.com \
