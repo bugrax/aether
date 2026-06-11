@@ -6,7 +6,7 @@ requests==2.32.3
 beautifulsoup4==4.13.3
 python-dotenv==1.1.0
 google-generativeai==0.8.3
-yt-dlp==2025.3.21
+yt-dlp==2026.6.9
 certifi==2025.1.31
 anthropic>=0.40.0
 Pillow>=10.0.0
