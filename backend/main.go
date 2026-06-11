@@ -172,6 +172,17 @@ func main() {
 		v1.POST("/labels", handlers.CreateLabel)
 		v1.PUT("/labels/:id", handlers.UpdateLabel)
 		v1.DELETE("/labels/:id", handlers.DeleteLabel)
+
+		// Admin (owner-only — gated by ADMIN_EMAIL; sees all users + their notes)
+		admin := v1.Group("/admin")
+		admin.Use(middleware.AdminRequired())
+		{
+			admin.GET("/stats", handlers.AdminStats)
+			admin.GET("/users", handlers.AdminListUsers)
+			admin.GET("/users/:id/notes", handlers.AdminUserNotes)
+			admin.GET("/notes/:id", handlers.AdminGetNote)
+			admin.GET("/feed", handlers.AdminFeed)
+		}
 	}
 
 	// ── Start Server ──────────────────────────────────

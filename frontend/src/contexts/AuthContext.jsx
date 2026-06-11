@@ -20,6 +20,7 @@ function broadcastToken(token) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const refreshTimerRef = useRef(null);
   const userRef = useRef(null);
   userRef.current = user;
@@ -100,6 +101,17 @@ export function AuthProvider({ children }) {
         console.warn('FCM registration failed:', err);
       }
     })();
+  }, [user]);
+
+  // Determine admin status from server settings (cosmetic gating — server enforces)
+  useEffect(() => {
+    if (!user) { setIsAdmin(false); return; }
+    if (isDevMode) { setIsAdmin(true); return; }
+    let cancelled = false;
+    usersAPI.getSettings()
+      .then((s) => { if (!cancelled) setIsAdmin(!!s.is_admin); })
+      .catch(() => { if (!cancelled) setIsAdmin(false); });
+    return () => { cancelled = true; };
   }, [user]);
 
   // Extension token request listener
@@ -262,7 +274,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, isDevMode }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, isDevMode, isAdmin }}>
       {children}
     </AuthContext.Provider>
   );

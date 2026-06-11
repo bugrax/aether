@@ -23,6 +23,7 @@ func GetSettings(c *gin.Context) {
 		"ai_language": user.AILanguage,
 		"username":    user.Username,
 		"ai_rules":   user.AIRules,
+		"is_admin":    middleware.IsAdmin(user),
 	})
 }
 

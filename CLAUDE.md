@@ -29,14 +29,14 @@ A personal knowledge engine. Users save URLs (YouTube, Instagram, articles, etc.
 ```
 aether/
 ├── backend/          # Go API server (Gin framework)
-│   ├── handlers/     # Route handlers (notes.go, users.go, vaults.go, chat.go, graph.go, entities.go, labels.go, activity.go, search.go, sse.go, desktop_auth.go)
+│   ├── handlers/     # Route handlers (notes.go, users.go, vaults.go, chat.go, graph.go, entities.go, labels.go, activity.go, search.go, sse.go, desktop_auth.go, admin.go)
 │   ├── middleware/    # Auth middleware (Firebase token validation) + VaultResolver (X-Vault-Id)
 │   ├── models/       # GORM models (note.go, note_revision.go, user.go, vault.go, label.go, entity.go, note_relation.go, chat_message.go, activity_log.go)
 │   ├── database/     # DB connection
 │   └── main.go       # Routes, CORS, server setup
 ├── frontend/         # React SPA + Capacitor iOS
 │   ├── src/
-│   │   ├── pages/    # DashboardPage, VaultPage, EditorPage, SharePage, SettingsPage, LoginPage, GraphPage, EntitiesPage, EntityDetailPage, ChatPage, ActivityPage, DesktopAuthPage, OnboardingPage, SharedNotePage
+│   │   ├── pages/    # DashboardPage, VaultPage, EditorPage, SharePage, SettingsPage, LoginPage, GraphPage, EntitiesPage, EntityDetailPage, ChatPage, ActivityPage, DesktopAuthPage, AdminPage, OnboardingPage, SharedNotePage
 │   │   ├── contexts/ # AuthContext (Firebase auth), LanguageContext (i18n), VaultContext (multi-vault)
 │   │   ├── components/ # Sidebar, AetherChat, LabelManager, SplashScreen, VaultManager, VaultSwitcher, MobileVaultSheet, editor/ (TipTap rich-text)
 │   │   ├── i18n/     # en.js, tr.js translation files
@@ -184,6 +184,8 @@ These override docker-compose.yml defaults. When adding new env vars:
 - `GEMINI_API_KEY`: For YouTube transcription + Instagram vision
 - `APIFY_TOKEN`: For Instagram carousel scraping
 - `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_BUCKET` / `MINIO_PUBLIC_URL`: S3-compatible thumbnail object storage
+- `ADMIN_EMAIL`: owner email for the admin panel (default `bugracakmak@gmail.com`); `GET /api/v1/admin/*` is gated to this user (`middleware.AdminRequired`)
+- `NTFY_URL` / `NTFY_TOKEN`: ntfy endpoint for system alerts (used by `scripts/aether-monitor.sh`)
 
 ## Frontend Build — Web vs iOS
 

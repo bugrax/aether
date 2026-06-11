@@ -77,6 +77,8 @@ Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extrac
 - **Dark Obsidian Theme** — Premium dark UI with purple accents
 
 ### Platform
+- **Admin Panel** — Owner-only (`ADMIN_EMAIL`) dashboard at `/admin`: all users, what they've saved, global stats & recent feed (read-only)
+- **System Monitoring** — `scripts/aether-monitor.sh` (cron) → ntfy alerts on container down, disk full, Redis/Postgres down, worker wedge, stuck notes, error spikes
 - **Sign in with Apple + Google** — Both providers on iOS/web
 - **Account Deletion** — Full GDPR-compliant data removal
 - **Push Notifications** — FCM server-side push when processing completes
@@ -181,6 +183,11 @@ POST /api/v1/share → Create note (status: processing) → Redis → Celery wor
 | GET | `/api/v1/entities` | List entities (type/search filter) |
 | GET | `/api/v1/entities/:id` | Entity detail with linked notes |
 | GET | `/api/v1/activity` | Activity log |
+| GET | `/api/v1/admin/stats` | Admin: global counts (owner-only) |
+| GET | `/api/v1/admin/users` | Admin: all users + note counts |
+| GET | `/api/v1/admin/users/:id/notes` | Admin: a user's notes |
+| GET | `/api/v1/admin/feed` | Admin: recent notes across all users |
+| GET | `/api/v1/admin/notes/:id` | Admin: any note's full content |
 | POST | `/api/v1/chat` | AI chat (SSE streaming) |
 | POST | `/api/v1/chat/:id/feedback` | Chat feedback |
 | GET | `/api/v1/chat/sessions` | Chat history |

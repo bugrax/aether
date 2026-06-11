@@ -21,6 +21,7 @@ import EntityDetailPage from './pages/EntityDetailPage';
 import SharedNotePage from './pages/SharedNotePage';
 import DesktopAuthPage from './pages/DesktopAuthPage';
 import ActivityPage from './pages/ActivityPage';
+import AdminPage from './pages/AdminPage';
 
 function ProtectedLayout() {
   const { user, loading } = useAuth();
@@ -119,6 +120,7 @@ function AppRoutes() {
         <Route path="/vault/graph" element={<GraphPage />} />
         <Route path="/entities" element={<EntitiesPage />} />
         <Route path="/entities/:id" element={<EntityDetailPage />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={

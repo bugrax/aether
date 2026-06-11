@@ -214,6 +214,32 @@ func GetUser(c *gin.Context) *models.User {
 	return nil
 }
 
+// AdminEmail returns the configured admin email (ADMIN_EMAIL env, with a default).
+func AdminEmail() string {
+	if e := os.Getenv("ADMIN_EMAIL"); e != "" {
+		return e
+	}
+	return "bugracakmak@gmail.com"
+}
+
+// IsAdmin reports whether the given user is the configured admin.
+func IsAdmin(u *models.User) bool {
+	return u != nil && strings.EqualFold(strings.TrimSpace(u.Email), AdminEmail())
+}
+
+// AdminRequired aborts the request with 403 unless the authenticated user is the
+// configured admin. Must run AFTER AuthRequired.
+func AdminRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !IsAdmin(GetUser(c)) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 // findOrCreateUserFromClaims looks up a user by Firebase UID or creates one.
 func findOrCreateUserFromClaims(uid, email, name, picture string) (*models.User, error) {
 	var user models.User

@@ -157,6 +157,21 @@ export const entitiesAPI = {
   get: (id) => request('GET', `/entities/${id}`),
 };
 
+// ── Admin (owner-only) ───────────────────────────────
+export const adminAPI = {
+  stats: () => request('GET', '/admin/stats'),
+  users: () => request('GET', '/admin/users'),
+  userNotes: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return request('GET', `/admin/users/${id}/notes${q ? '?' + q : ''}`);
+  },
+  feed: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return request('GET', `/admin/feed${q ? '?' + q : ''}`);
+  },
+  note: (id) => request('GET', `/admin/notes/${id}`),
+};
+
 // ── Chat ─────────────────────────────────────────────
 export const chatAPI = {
   send: async (message, sessionId, language, onToken, onDone, onError) => {
