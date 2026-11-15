@@ -26,7 +26,7 @@ Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extrac
 | **Backend** | Go, Gin, GORM | REST API, SSE streaming, Firebase Auth |
 | **Worker** | Python, Celery, Redis | AI processing pipeline |
 | **Database** | PostgreSQL + pgvector | Notes, labels, embeddings, entities, relations |
-| **AI Chat** | Gemini 2.5 Flash | Vault-aware chatbot with SSE streaming |
+| **AI Chat** | Claude CLI (tools disabled) + Gemini fallback | Vault-aware chatbot with SSE streaming |
 | **AI Summary** | Claude CLI + Gemini | Content analysis, summarization, entity extraction |
 | **Auth** | Firebase Auth | Google + Apple Sign-In |
 | **Analytics** | Firebase Analytics | Web + native event tracking |
@@ -38,7 +38,7 @@ Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extrac
 ### Core
 - **Multi-Vault** — Organize notes into separate vaults; all content (notes, labels, entities, relations) is vault-scoped via the `X-Vault-Id` header
 - **Multi-platform URL capture** — iOS Share Extension, Android Share Intent, Chrome Extension, Web
-- **AI Processing Pipeline** — YouTube transcription, Instagram OCR, Twitter/X scraping, PDF extraction, article parsing
+- **AI Processing Pipeline** — YouTube transcription (Gemini → YouTube subtitles → local Whisper), Instagram OCR + reel transcription (Gemini → local Whisper), Twitter/X scraping, PDF extraction, article parsing
 - **AI Summaries** — Claude CLI generates structured Markdown with entity extraction, Gemini fallback
 - **Community Insights** — YouTube/Instagram/Twitter comments analyzed by AI
 - **Semantic Search** — pgvector 384-dim embeddings for intelligent search
@@ -53,7 +53,7 @@ Save any URL — YouTube, Instagram, Twitter/X, articles, PDFs — and AI extrac
 - **AI Rules** — Custom user instructions for how AI processes content
 
 ### AI Assistant
-- **Aether AI Chatbot** — Vault-aware chatbot powered by Gemini 2.5 Flash
+- **Aether AI Chatbot** — Vault-aware chatbot powered by the Claude CLI on the host (all tools disabled), Gemini 2.5 Flash fallback
 - **SSE Streaming** — Real-time token-by-token response streaming
 - **Note Linking** — AI references specific notes with clickable links
 - **Conversation History** — Persistent chat sessions grouped by date
@@ -142,6 +142,7 @@ aether/
 ```
 POST /api/v1/share → Create note (status: processing) → Redis → Celery worker
   1. extract_content_from_url()     — YouTube/Instagram/Twitter/article extraction
+                                      transcripts: Gemini → YouTube subtitles → faster-whisper (CPU, first 15 min)
   2. call_llm()                     — Claude CLI (primary) or Gemini (fallback)
   3. extract_comments()             — YouTube/Instagram/Twitter comments
   4. generate_community_insights()  — AI analysis of community discussion
@@ -151,7 +152,8 @@ POST /api/v1/share → Create note (status: processing) → Redis → Celery wor
   8. auto_label_source()            — Label by source domain
   9. auto_label_topics()            — AI extracts 2-4 topic labels
  10. find_related_notes()           — pgvector similarity → note_relations (powers Graph)
- 11. extract_entities()             — AI extracts people, concepts, tools, etc. (powers Entities)
+ 11. extract_entities()             — AI extracts people, concepts, tools, etc. (powers Entities);
+                                      note_count is recomputed from live links (Beat: recount_entities every 10 min)
  12. send_push_notification()       — FCM push to user
 ```
 
@@ -227,7 +229,9 @@ POST /api/v1/share → Create note (status: processing) → Redis → Celery wor
 | `POSTGRES_*` | API, Worker | Database connection |
 | `REDIS_URL` | API, Worker | Celery broker |
 | `FIREBASE_PROJECT_ID` | API, Worker | Firebase project |
-| `GEMINI_API_KEY` | API, Worker | Gemini AI (chat + processing) |
+| `GEMINI_API_KEY` | API, Worker | Gemini AI (chat fallback, vision OCR, transcription) |
+| `CLAUDE_CLI_PATH` | API, Worker | Claude CLI command (ssh to host); chat + summaries |
+| `WHISPER_MODEL` / `WHISPER_THREADS` / `WHISPER_MAX_SECONDS` | Worker | Local transcription fallback (default `small`, 2 threads, 900s) |
 | `APIFY_TOKEN` | Worker | Instagram/Twitter scraping |
 | `ALLOWED_ORIGINS` | API | CORS origins |
 | `VITE_FIREBASE_*` | Frontend | Firebase config (build-time) |

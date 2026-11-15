@@ -57,7 +57,11 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-bugracakmak@gmail.com}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       EMBEDDING_URL: http://worker:8100
+      # Chat: Claude CLI on the host (primary), Gemini fallback
+      CLAUDE_CLI_PATH: "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes -i /root/.ssh/id_rsa root@172.17.0.1 /root/.local/bin/claude"
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-sonnet}
     volumes:
+      - /root/.ssh:/root/.ssh:ro
       - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     depends_on:
       postgres:
@@ -93,6 +97,10 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-}
       MINIO_BUCKET: ${MINIO_BUCKET:-aether-thumbnails}
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-https://s3.relayhaus.org/aether-thumbnails}
+      # Local transcription fallback (faster-whisper on CPU)
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_THREADS: ${WHISPER_THREADS:-2}
+      WHISPER_MAX_SECONDS: ${WHISPER_MAX_SECONDS:-900}
     volumes:
       - /root/.ssh:/root/.ssh:ro
       - ./firebase-service-account.json:/app/firebase-service-account.json:ro

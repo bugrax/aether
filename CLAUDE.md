@@ -150,6 +150,7 @@ POST /api/v1/share → Create note (status: processing) → Redis queue → Cele
 
 ### Periodic Tasks (Celery Beat)
 - `backfill_relations` — every 90 seconds, finds missing note relations (keeps the Graph healed)
+- `recount_entities` — every 10 minutes, resyncs `entities.note_count` from live links (self-healing)
 - `backfill_entities` — not scheduled; run manually once to populate entities for notes that were processed before entity extraction was enabled
 
 ### Instagram Processing
@@ -161,9 +162,17 @@ POST /api/v1/share → Create note (status: processing) → Redis queue → Cele
 - Thumbnail → base64 data URI (Instagram CDN URLs expire in hours)
 
 ### YouTube Processing
-- yt-dlp downloads subtitles (en, tr) first
-- If no subtitles: downloads audio → Gemini 2.5 Flash transcription
-- `GEMINI_API_KEY` must be set in worker container
+- Transcript order: Gemini audio transcription → YouTube subtitles/auto-captions (json3 via yt-dlp info, no download) → local Whisper
+- **YouTube audio downloads currently fail with HTTP 403** (SABR / missing PO token; a JS runtime alone does not fix it). Subtitles are what actually works today; Gemini and Whisper only help when the download succeeds
+
+### Local Transcription (faster-whisper)
+- `_transcribe_with_whisper()` — CPU fallback when Gemini fails (no key / no credits). Model `small` int8 baked into the worker image
+- minis is a 4-core Intel N150: ~0.4x realtime with 2 threads. One transcription at a time (lock); only the first `WHISPER_MAX_SECONDS` (900) are transcribed
+- Instagram reels: Gemini (speech + visuals) → Whisper (speech only). Image OCR is still Gemini-only
+
+### Claude CLI calls (worker + chat)
+- Always run with `--tools "" --strict-mcp-config`: prompts carry untrusted web content / chat input and the CLI runs as **root on the host**
+- `CLAUDE_CLI_PATH` is an ssh prefix; ssh joins remote words with spaces, so every claude argument must be shell-quoted (otherwise `--tools ""` silently loses its empty value)
 
 ### Domain Label Parsing
 - `urlparse().netloc.replace("www.", "")` — strip only PREFIX subdomains
@@ -204,7 +213,7 @@ These override docker-compose.yml defaults. When adding new env vars:
 - `share_token` column: partial unique index `WHERE share_token != ''`
 - `ai_language` column: separate from `language` (UI language)
 - `vaults` table: multi-vault containers; every content table is vault-scoped via `vault_id` (resolved from the `X-Vault-Id` header by VaultResolver middleware)
-- `entities` table: extracted entities (name, type, description, note_count) per vault, deduplicated by name+type
+- `entities` table: extracted entities (name, type, description, note_count) per vault, deduplicated by name+type. `note_count` = linked notes that are not deleted and `status='ready'` (same as the detail page); never increment it — recount (`recountEntities` in Go, `ENTITY_LIVE_NOTE_COUNT_SQL` in the worker). Entities with `note_count = 0` are hidden from the list
 - `note_entities` table: junction between notes and entities with context snippet
 - `note_relations` table: bidirectional note links with similarity score (0-1) — powers the Graph
 - `note_revisions` table: version history for note edits
@@ -300,3 +309,6 @@ When adding new features, endpoints, pages, or making architectural changes, upd
 12. **Tauri `tauri://localhost` origin must be in CORS** — or all API calls fail silently
 13. **`npm run build:desktop` does NOT rebuild Vite** — run `npm run build` first, or use `rm -rf dist && npm run build && npm run build:desktop`
 14. **Thumbnails stored in MinIO** (`s3.relayhaus.org/aether-thumbnails/`) — not base64 in DB. Old base64 thumbnails migrated.
+15. **AI chat uses the Claude CLI over SSH** (api container mounts `/root/.ssh`, has `openssh-client`), Gemini only as fallback — Gemini prepaid credits ran out in Nov 2026 (`402`)
+16. **Never run `claude -p` without `--tools ""`** — it runs as root on minis and would read files (e.g. `.env`) on request of web content or chat users
+17. **Old iOS builds don't get frontend fixes** — the Capacitor app ships its own bundle; web fixes reach iPhone users only after a new iOS build (Xcode Cloud runs `ci_post_clone.sh`, bump `CURRENT_PROJECT_VERSION` for both App and AetherShare)

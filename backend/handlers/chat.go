@@ -3,12 +3,15 @@ package handlers
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -76,16 +79,18 @@ func ChatMessage(c *gin.Context) {
 	// Gather vault context
 	vaultContext := buildVaultContext(user, vault, req.Message)
 
-	// Load conversation history (last 10 messages of this session)
+	// Load conversation history: the 10 most recent messages of this session
+	// (including the one just saved), oldest first.
 	var history []models.ChatMessage
 	database.DB.Where("vault_id = ? AND session_id = ?", vault.ID, sessionID).
-		Order("created_at ASC").
+		Order("created_at DESC").
 		Limit(10).
 		Find(&history)
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
 
-	// Build the full prompt
 	systemPrompt := buildSystemPrompt(user, lang, vaultContext)
-	messages := buildGeminiMessages(systemPrompt, history)
 
 	// Stream response via SSE
 	c.Header("Content-Type", "text/event-stream")
@@ -98,15 +103,19 @@ func ChatMessage(c *gin.Context) {
 	fmt.Fprintf(c.Writer, ": stream opened\n\n")
 	c.Writer.Flush()
 
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		sendSSE(c, "error", `{"error":"GEMINI_API_KEY not configured"}`)
-		return
-	}
-
-	fullResponse, err := streamGeminiResponse(c, apiKey, messages)
+	// Primary: Claude CLI on the host. Fallback: Gemini, but only if Claude failed
+	// before streaming anything (otherwise the user would see two answers spliced).
+	fullResponse, err := streamClaudeResponse(c, buildClaudePrompt(systemPrompt, history))
 	if err != nil {
-		log.Printf("❌ Chat Gemini error: %v", err)
+		log.Printf("❌ Chat Claude error: %v", err)
+		if apiKey := os.Getenv("GEMINI_API_KEY"); fullResponse == "" && apiKey != "" {
+			fullResponse, err = streamGeminiResponse(c, apiKey, buildGeminiMessages(systemPrompt, history))
+			if err != nil {
+				log.Printf("❌ Chat Gemini error: %v", err)
+			}
+		}
+	}
+	if err != nil {
 		errMsg := "AI is temporarily unavailable. Please try again in a moment."
 		if strings.Contains(err.Error(), "429") {
 			errMsg = "AI rate limit reached. Please wait a minute and try again."
@@ -118,7 +127,7 @@ func ChatMessage(c *gin.Context) {
 
 	// Save assistant response to DB (only if non-empty)
 	if fullResponse == "" {
-		log.Printf("⚠️ Chat: Gemini returned empty response for session %s", sessionID)
+		log.Printf("⚠️ Chat: AI returned empty response for session %s", sessionID)
 		errJSON, _ := json.Marshal(map[string]string{"error": "AI returned empty response. Please try again."})
 		sendSSE(c, "error", string(errJSON))
 		c.Writer.Flush()
@@ -343,7 +352,149 @@ SPECIAL COMMANDS you can handle:
 	return sb.String()
 }
 
-// ── Gemini API ──────────────────────────────────────
+// ── Claude CLI (primary) ────────────────────────────
+
+// chatClaudeSystemPrompt replaces Claude Code's default agent prompt. It holds no
+// user data; the vault context and conversation go in through stdin.
+const chatClaudeSystemPrompt = `You are Aether AI, the assistant inside Aether, a personal knowledge vault app. ` +
+	`You have no tools and no file, shell, or web access. Answer only from the vault context and conversation ` +
+	`in the user's message, and never claim to have opened files, run commands, or browsed. ` +
+	`Follow the guidance in the <instructions> block of the message.`
+
+func buildClaudePrompt(systemPrompt string, history []models.ChatMessage) string {
+	var sb strings.Builder
+	sb.WriteString("<instructions>\n")
+	sb.WriteString(systemPrompt)
+	sb.WriteString("\n</instructions>\n\n<conversation>\n")
+	for _, msg := range history {
+		role := "User"
+		if msg.Role == "assistant" {
+			role = "Assistant"
+		}
+		fmt.Fprintf(&sb, "%s: %s\n\n", role, msg.Content)
+	}
+	sb.WriteString("</conversation>\n\nWrite the Assistant's reply to the last User message. Output only the reply itself.")
+	return sb.String()
+}
+
+// shellQuote quotes s for a POSIX shell.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// claudeCLICommand builds the Claude CLI command from CLAUDE_CLI_PATH, which is
+// either a local binary or an ssh prefix ending in the remote binary path.
+func claudeCLICommand(ctx context.Context, args ...string) (*exec.Cmd, error) {
+	base := strings.Fields(os.Getenv("CLAUDE_CLI_PATH"))
+	if len(base) == 0 {
+		return nil, fmt.Errorf("CLAUDE_CLI_PATH not configured")
+	}
+	if filepath.Base(base[0]) == "ssh" {
+		// ssh joins the remote command's words with spaces and the remote shell
+		// re-splits them, so every argument must be quoted (and "" survives).
+		quoted := make([]string, len(args))
+		for i, a := range args {
+			quoted[i] = shellQuote(a)
+		}
+		args = quoted
+	}
+	return exec.CommandContext(ctx, base[0], append(base[1:], args...)...), nil
+}
+
+// streamClaudeResponse runs `claude -p` with all tools disabled and forwards its
+// text deltas to the client as SSE "token" events. It returns the full text; on
+// error the text is whatever was streamed before the failure.
+func streamClaudeResponse(c *gin.Context, prompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 180*time.Second)
+	defer cancel()
+
+	model := os.Getenv("CLAUDE_MODEL")
+	if model == "" {
+		model = "sonnet"
+	}
+	// --tools "" is a hard requirement: chat input is untrusted and the CLI runs
+	// as root on the host, so it must not be able to read files or run commands.
+	cmd, err := claudeCLICommand(ctx,
+		"-p",
+		"--tools", "",
+		"--strict-mcp-config",
+		"--no-session-persistence",
+		"--model", model,
+		"--system-prompt", chatClaudeSystemPrompt,
+		"--output-format", "stream-json",
+		"--verbose",
+		"--include-partial-messages",
+	)
+	if err != nil {
+		return "", err
+	}
+	cmd.Stdin = strings.NewReader(prompt)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("start claude: %w", err)
+	}
+
+	var full strings.Builder
+	var resultText string
+	var resultIsError, gotResult bool
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	for scanner.Scan() {
+		var ev struct {
+			Type  string `json:"type"`
+			Event struct {
+				Type  string `json:"type"`
+				Delta struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"delta"`
+			} `json:"event"`
+			IsError bool   `json:"is_error"`
+			Result  string `json:"result"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &ev) != nil {
+			continue
+		}
+		switch ev.Type {
+		case "stream_event":
+			// Only text deltas; thinking deltas are not shown to the user.
+			if ev.Event.Type == "content_block_delta" && ev.Event.Delta.Type == "text_delta" && ev.Event.Delta.Text != "" {
+				full.WriteString(ev.Event.Delta.Text)
+				tokenJSON, _ := json.Marshal(map[string]string{"text": ev.Event.Delta.Text})
+				sendSSE(c, "token", string(tokenJSON))
+				c.Writer.Flush()
+			}
+		case "result":
+			gotResult = true
+			resultText = ev.Result
+			resultIsError = ev.IsError
+		}
+	}
+	waitErr := cmd.Wait()
+
+	if resultIsError {
+		return full.String(), fmt.Errorf("claude returned error: %.300s", resultText)
+	}
+	if !gotResult || (waitErr != nil && full.Len() == 0) {
+		return full.String(), fmt.Errorf("claude cli failed (%v): %.300s", waitErr, strings.TrimSpace(stderr.String()))
+	}
+	// No partial messages were streamed (older CLI): send the final text at once.
+	if full.Len() == 0 && resultText != "" {
+		full.WriteString(resultText)
+		tokenJSON, _ := json.Marshal(map[string]string{"text": resultText})
+		sendSSE(c, "token", string(tokenJSON))
+		c.Writer.Flush()
+	}
+	return full.String(), nil
+}
+
+// ── Gemini API (fallback) ───────────────────────────
 
 type geminiContent struct {
 	Role  string       `json:"role"`

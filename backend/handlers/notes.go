@@ -285,6 +285,9 @@ func DeleteNote(c *gin.Context) {
 		return
 	}
 
+	// The note no longer counts toward its entities.
+	recountEntities(database.DB, linkedEntityIDs(database.DB, noteID))
+
 	c.JSON(http.StatusOK, gin.H{"message": "Note deleted"})
 }
 

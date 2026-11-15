@@ -19,7 +19,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /aether-api .
 # ── Runtime Stage ──────────────────────────────
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates tzdata
+# openssh-client: chat runs the Claude CLI on the host over SSH (CLAUDE_CLI_PATH)
+RUN apk add --no-cache ca-certificates tzdata openssh-client
 
 WORKDIR /app
 

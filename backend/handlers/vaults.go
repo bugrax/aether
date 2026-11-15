@@ -244,7 +244,9 @@ func MoveNote(c *gin.Context) {
 	tx := database.DB.Begin()
 
 	// Delete AI-derived data
+	entityIDs := linkedEntityIDs(tx, noteID)
 	tx.Exec("DELETE FROM note_entities WHERE note_id = ?", noteID)
+	recountEntities(tx, entityIDs)
 	tx.Exec("DELETE FROM note_relations WHERE note_id_a = ? OR note_id_b = ?", noteID, noteID)
 	// Remove any labels that were on this note (labels are per-vault)
 	tx.Exec("DELETE FROM note_labels WHERE note_id = ?", noteID)

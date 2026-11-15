@@ -8,8 +8,11 @@ and executed by the Celery worker.
 import os
 import ssl
 import json
+import shlex
 import subprocess
 import logging
+import threading
+import time
 from datetime import datetime, timezone
 
 import certifi
@@ -174,31 +177,54 @@ def _extract_video(url: str) -> dict:
     description = info.get("description", "")
     thumbnail = info.get("thumbnail", "")
 
-    # We always prioritize transcribing raw audio via Gemini for high-quality verbatim text
+    # Gemini gives the best verbatim transcript; subtitles and local Whisper keep
+    # videos transcribed when Gemini is unavailable (no key, no credits).
     content = f"# {title}\n\n{description}"
-    gemini_transcript = _transcribe_audio_with_gemini(url)
-    if gemini_transcript:
-        content += f"\n\n## Full Audio Transcript (Gemini)\n\n{gemini_transcript}"
+    transcript, source = _transcribe_youtube(url, info)
+    if transcript:
+        content += f"\n\n## Full Audio Transcript ({source})\n\n{transcript}"
     else:
-        logger.warning("Gemini transcript failed, returning only title and description.")
+        logger.warning("No transcript (Gemini, subtitles and Whisper all failed), using title and description only.")
 
     return {"title": title, "content": content, "thumbnail": thumbnail}
 
 
-def _transcribe_audio_with_gemini(url: str) -> str:
-    """Download audio via yt-dlp and transcribe using Gemini 1.5 Flash."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        logger.warning("No GEMINI_API_KEY set, skipping audio transcription fallback.")
-        return ""
-        
+def _transcribe_youtube(url: str, info: dict) -> tuple:
+    """Transcript for a video: Gemini audio → YouTube subtitles → local Whisper.
+
+    Returns (transcript, source_name), or ("", "") if every method failed.
+    """
+    audio_path = ""
+    try:
+        if os.getenv("GEMINI_API_KEY"):
+            audio_path = _download_youtube_audio(url)
+            if audio_path:
+                transcript = _transcribe_audio_with_gemini(audio_path)
+                if transcript:
+                    return transcript, "Gemini"
+
+        transcript = _youtube_subtitles_text(info)
+        if transcript:
+            logger.info(f"📝 Using YouTube subtitles: {len(transcript)} chars")
+            return transcript, "YouTube subtitles"
+
+        if not audio_path:
+            audio_path = _download_youtube_audio(url)
+        if audio_path:
+            transcript = _transcribe_with_whisper(audio_path)
+            if transcript:
+                return transcript, "Whisper"
+        return "", ""
+    finally:
+        if audio_path and os.path.exists(audio_path):
+            os.remove(audio_path)
+
+
+def _download_youtube_audio(url: str) -> str:
+    """Download a video's audio track with yt-dlp. Returns the file path or ""."""
     import yt_dlp
-    import google.generativeai as genai
     import uuid
-    import time
-    
-    genai.configure(api_key=api_key)
-    
+
     tmp_path = f"/tmp/aether_{uuid.uuid4().hex}.m4a"
     dl_opts = {
         "format": "bestaudio[ext=m4a]/bestaudio",
@@ -206,15 +232,115 @@ def _transcribe_audio_with_gemini(url: str) -> str:
         "quiet": True,
         "no_warnings": True,
     }
-    
-    logger.info(f"🎧 Downloading audio fallback for {url}")
+    logger.info(f"🎧 Downloading audio for {url}")
     try:
         with yt_dlp.YoutubeDL(dl_opts) as ydl:
             ydl.download([url])
-            
-        if not os.path.exists(tmp_path):
-            raise FileNotFoundError("Audio file was not created by yt-dlp.")
-            
+        if os.path.exists(tmp_path):
+            return tmp_path
+        logger.warning("⚠️ yt-dlp did not create the audio file")
+    except Exception as e:
+        logger.warning(f"⚠️ Audio download failed: {e}")
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
+    return ""
+
+
+def _youtube_subtitles_text(info: dict) -> str:
+    """Plain text of a video's subtitles from yt-dlp info, or "".
+
+    Prefers human subtitles, then the original-language auto captions (keys like
+    "en-orig"), then the video language / en / tr; never fetches media.
+    """
+    import re
+    video_lang = (info.get("language") or "").split("-")[0]
+    langs = [l for l in dict.fromkeys([video_lang, "en", "tr"]) if l]
+
+    candidates = []
+    manual = info.get("subtitles") or {}
+    auto = info.get("automatic_captions") or {}
+    for lang in langs:
+        candidates += [v for k, v in manual.items() if k.split("-")[0] == lang]
+    candidates += [v for k, v in auto.items() if k.endswith("-orig")]
+    for lang in langs:
+        if lang in auto:
+            candidates.append(auto[lang])
+
+    for formats in candidates:
+        fmt = next((f for f in formats or [] if f.get("ext") == "json3" and f.get("url")), None)
+        if not fmt:
+            continue
+        try:
+            resp = requests.get(fmt["url"], timeout=30, verify=certifi.where())
+            if resp.status_code != 200:
+                continue
+            # Each event is a caption line; its segs are word pieces that carry
+            # their own spacing. Lines are joined with a space.
+            lines = []
+            for event in resp.json().get("events", []):
+                lines.append("".join(seg.get("utf8", "") for seg in event.get("segs") or []))
+            text_out = re.sub(r"\s+", " ", " ".join(lines)).strip()
+            if len(text_out) > 50:
+                return text_out
+        except Exception as e:
+            logger.warning(f"⚠️ Subtitle fetch failed: {e}")
+    return ""
+
+
+# ── Local transcription (faster-whisper, CPU) ─────────
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
+WHISPER_THREADS = int(os.getenv("WHISPER_THREADS", "2"))
+# Only the first N seconds are transcribed: the LLM sees at most ~30k chars of
+# content anyway, and minis is a 4-core N150 shared with many other services.
+WHISPER_MAX_SECONDS = int(os.getenv("WHISPER_MAX_SECONDS", "900"))
+_whisper_model = None
+_whisper_lock = threading.Lock()  # one transcription at a time; model loads once
+
+
+def _transcribe_with_whisper(file_path: str) -> str:
+    """Transcribe speech in a local audio/video file with faster-whisper. Returns "" on failure."""
+    global _whisper_model
+    if not file_path or not os.path.exists(file_path):
+        return ""
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        logger.warning("⚠️ faster-whisper not installed, skipping local transcription")
+        return ""
+
+    try:
+        with _whisper_lock:
+            if _whisper_model is None:
+                logger.info(f"🎙️ Loading Whisper model '{WHISPER_MODEL}' (int8, {WHISPER_THREADS} threads)...")
+                _whisper_model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
+                                              cpu_threads=WHISPER_THREADS)
+            started = time.time()
+            segments, info = _whisper_model.transcribe(file_path, beam_size=1, vad_filter=True)
+            parts = []
+            for seg in segments:  # lazy generator: stopping early skips the rest
+                if seg.start > WHISPER_MAX_SECONDS:
+                    break
+                parts.append(seg.text.strip())
+        transcript = " ".join(p for p in parts if p)
+        logger.info(f"🎙️ Whisper: {len(transcript)} chars, lang={info.language}, "
+                    f"audio={info.duration:.0f}s, took {time.time() - started:.0f}s")
+        return transcript
+    except Exception as e:
+        logger.warning(f"⚠️ Whisper transcription failed: {e}")
+        return ""
+
+
+def _transcribe_audio_with_gemini(audio_path: str) -> str:
+    """Transcribe a downloaded audio file with Gemini 2.5 Flash. Returns "" on failure."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return ""
+
+    import google.generativeai as genai
+    genai.configure(api_key=api_key)
+    tmp_path = audio_path
+
+    try:
         logger.info(f"📤 Uploading audio to Gemini: {tmp_path}")
         audio_file = genai.upload_file(path=tmp_path, mime_type="audio/mp4")
         
@@ -250,13 +376,11 @@ def _transcribe_audio_with_gemini(url: str) -> str:
             return ""
         
         return response.text
-        
+
     except Exception as e:
-        logger.warning(f"⚠️ Gemini transcription fallback failed: {e}")
+        # The caller owns (and deletes) the audio file so Whisper can reuse it.
+        logger.warning(f"⚠️ Gemini audio transcription failed: {e}")
         return ""
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
 
 def _extract_instagram(url: str) -> dict:
@@ -591,18 +715,17 @@ def _download_instagram_video_ytdlp(url: str) -> str:
     return ""
 
 
-def _transcribe_local_video(file_path: str) -> str:
-    """Transcribe a local video/audio file with Gemini."""
+def _gemini_analyze_video(file_path: str) -> str:
+    """Speech + visuals + on-screen text of a local video via Gemini. Returns "" on failure."""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return ""
 
-    import time
     import google.generativeai as genai
     genai.configure(api_key=api_key)
 
     try:
-        logger.info(f"📤 Uploading local video to Gemini: {file_path}")
+        logger.info(f"📤 Uploading video to Gemini: {file_path}")
         video_file = genai.upload_file(path=file_path, mime_type="video/mp4")
 
         while video_file.state.name == "PROCESSING":
@@ -634,33 +757,36 @@ def _transcribe_local_video(file_path: str) -> str:
         genai.delete_file(video_file.name)
 
         if not response.candidates:
+            block_reason = getattr(response.prompt_feedback, 'block_reason', 'UNKNOWN')
+            logger.warning(f"⚠️ Gemini video analysis blocked: {block_reason}")
             return ""
 
-        logger.info(f"🎬 Video transcribed: {len(response.text)} chars")
+        logger.info(f"🎬 Video transcribed by Gemini: {len(response.text)} chars")
         return response.text
 
     except Exception as e:
-        logger.warning(f"⚠️ Local video transcription failed: {e}")
+        logger.warning(f"⚠️ Gemini video transcription failed: {e}")
         return ""
+
+
+def _transcribe_local_video(file_path: str) -> str:
+    """Transcribe a downloaded video: Gemini (speech + visuals), else local Whisper
+    (speech only). Always deletes the file."""
+    try:
+        return _gemini_analyze_video(file_path) or _transcribe_with_whisper(file_path)
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
 
 
 def _transcribe_instagram_video(video_url: str) -> str:
-    """Download Instagram reel/video audio and transcribe with Gemini."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        return ""
-
+    """Download an Instagram reel/video from its CDN URL and transcribe it."""
     import uuid
-    import time
 
     logger.info(f"🎬 Downloading Instagram video for transcription...")
     tmp_path = f"/tmp/aether_ig_video_{uuid.uuid4().hex}.mp4"
 
     try:
-        # Download video
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
         resp = requests.get(video_url, headers=headers, timeout=60, verify=certifi.where(), stream=True)
         if resp.status_code != 200:
@@ -677,49 +803,7 @@ def _transcribe_instagram_video(video_url: str) -> str:
             return ""
 
         logger.info(f"🎬 Instagram video downloaded: {file_size / 1024 / 1024:.1f}MB")
-
-        # Upload to Gemini and transcribe (same as YouTube)
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-
-        logger.info("📤 Uploading Instagram video to Gemini...")
-        video_file = genai.upload_file(path=tmp_path, mime_type="video/mp4")
-
-        while video_file.state.name == "PROCESSING":
-            time.sleep(2)
-            video_file = genai.get_file(video_file.name)
-
-        if video_file.state.name == "FAILED":
-            raise ValueError("Gemini failed to process the video file.")
-
-        logger.info("🤖 Requesting Gemini transcription for Instagram video...")
-        model = genai.GenerativeModel("gemini-2.5-flash")
-
-        safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
-        ]
-
-        response = model.generate_content([
-            video_file,
-            "You are analyzing this video. Please:\n"
-            "1. Transcribe ALL spoken words accurately in their native language.\n"
-            "2. Describe what is happening visually in the video.\n"
-            "3. Note any on-screen text, captions, or graphics.\n"
-            "Provide a complete, detailed analysis."
-        ], safety_settings=safety_settings)
-
-        genai.delete_file(video_file.name)
-
-        if not response.candidates:
-            block_reason = getattr(response.prompt_feedback, 'block_reason', 'UNKNOWN')
-            logger.warning(f"⚠️ Gemini video analysis blocked: {block_reason}")
-            return ""
-
-        logger.info(f"🎬 Instagram video transcribed: {len(response.text)} chars")
-        return response.text
+        return _transcribe_local_video(tmp_path)
 
     except Exception as e:
         logger.warning(f"⚠️ Instagram video transcription failed: {e}")
@@ -907,6 +991,20 @@ def _extract_pdf(url: str) -> dict:
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "sonnet")
 CLAUDE_CLI = os.getenv("CLAUDE_CLI_PATH", "claude")
 
+# Prompts carry untrusted web content and the CLI runs as root on the host, so
+# every call runs with all tools disabled (no file reads, shell, or web access).
+CLAUDE_ARGS = ["-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence"]
+
+
+def _claude_cmd() -> list:
+    """Build the Claude CLI argv from CLAUDE_CLI_PATH (local binary or ssh prefix)."""
+    base = shlex.split(CLAUDE_CLI)
+    if base and os.path.basename(base[0]) == "ssh":
+        # ssh joins the remote words with spaces and the remote shell re-splits
+        # them, so quote each argument (this is what keeps --tools "" intact).
+        return base + [shlex.quote(a) for a in CLAUDE_ARGS]
+    return base + CLAUDE_ARGS
+
 
 def generate_title(raw_title: str, ai_summary: str, language: str = "en") -> str:
     """Generate a clean, descriptive title from the raw title and AI summary."""
@@ -1029,7 +1127,7 @@ def _call_claude_cli(prompt: str) -> str:
     import subprocess
     try:
         logger.info(f"🧠 Calling Claude CLI ({CLAUDE_MODEL})...")
-        cmd = CLAUDE_CLI.split() + ["-p"]
+        cmd = _claude_cmd()
         
         result = subprocess.run(
             cmd,
@@ -1512,6 +1610,13 @@ ENTITY_TYPE_MAP = {
 }
 
 
+# entities.note_count always means: linked notes that are not deleted and are
+# ready (what the entity detail page lists). Same definition as the Go API.
+ENTITY_LIVE_NOTE_COUNT_SQL = """(SELECT COUNT(DISTINCT ne.note_id)
+    FROM note_entities ne JOIN notes n ON n.id = ne.note_id
+    WHERE ne.entity_id = entities.id AND n.deleted_at IS NULL AND n.status = 'ready')"""
+
+
 def extract_entities(note_id: str, ai_insight: str, language: str = "en", vault_id: str = None):
     """Extract structured entities from AI insight and store them in the database (scoped to vault)."""
     if not ai_insight or len(ai_insight) < 100:
@@ -1592,20 +1697,17 @@ Response (JSON array only):"""
 
                 if existing:
                     entity_id = str(existing[0])
-                    # Update note count
-                    conn.execute(
-                        text("UPDATE entities SET note_count = note_count + 1, updated_at = NOW() WHERE id = :eid"),
-                        {"eid": entity_id}
-                    )
                 else:
                     result_row = conn.execute(
                         text("""INSERT INTO entities (id, user_id, vault_id, name, type, description, note_count, created_at, updated_at)
-                                VALUES (gen_random_uuid(), :uid, :vid, :name, :type, :desc, 1, NOW(), NOW()) RETURNING id"""),
+                                VALUES (gen_random_uuid(), :uid, :vid, :name, :type, :desc, 0, NOW(), NOW()) RETURNING id"""),
                         {"uid": user_id, "vid": vault_id, "name": name, "type": etype, "desc": desc}
                     )
                     entity_id = str(result_row.fetchone()[0])
 
-            # Link entity to note (avoid duplicates)
+            # Link entity to note (avoid duplicates), then resync its count from the
+            # real links. Never increment blindly: retries and duplicate task runs
+            # (acks_late) re-extract the same note and used to inflate note_count.
             with engine.begin() as conn:
                 exists = conn.execute(
                     text("SELECT 1 FROM note_entities WHERE note_id = :nid AND entity_id = :eid"),
@@ -1618,6 +1720,10 @@ Response (JSON array only):"""
                         {"nid": note_id, "eid": entity_id, "vid": vault_id, "ctx": desc[:300]}
                     )
                     count += 1
+                conn.execute(
+                    text(f"UPDATE entities SET note_count = {ENTITY_LIVE_NOTE_COUNT_SQL}, updated_at = NOW() WHERE id = :eid"),
+                    {"eid": entity_id}
+                )
 
         if count > 0:
             logger.info(f"🧬 Extracted {count} entities for note {note_id}")
@@ -2232,6 +2338,33 @@ def backfill_relations(self):
 
     logger.info(f"🔗 Relation backfill complete: {total_linked} new relations, {total_checked} notes checked")
     return {"linked": total_linked, "checked": total_checked}
+
+
+@app.task
+def recount_entities():
+    """Resync every entity's note_count from its live links (self-healing).
+
+    Catches drift from any path that changes links or note state outside the
+    API's own recount (manual SQL, old clients, status changes on reprocess).
+    """
+    with engine.begin() as conn:
+        result = conn.execute(text("""
+            UPDATE entities e SET note_count = c.cnt
+            FROM (
+                SELECT e2.id, COUNT(DISTINCT n.id) AS cnt
+                FROM entities e2
+                LEFT JOIN note_entities ne ON ne.entity_id = e2.id
+                LEFT JOIN notes n ON n.id = ne.note_id
+                    AND n.deleted_at IS NULL AND n.status = 'ready'
+                WHERE e2.deleted_at IS NULL
+                GROUP BY e2.id
+            ) c
+            WHERE e.id = c.id AND e.note_count IS DISTINCT FROM c.cnt
+        """))
+        fixed = result.rowcount
+    if fixed:
+        logger.info(f"🧬 Entity recount: fixed note_count on {fixed} entities")
+    return {"fixed": fixed}
 
 
 @app.task(bind=True, max_retries=1)

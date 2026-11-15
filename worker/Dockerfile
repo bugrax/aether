@@ -20,6 +20,11 @@ RUN pip install --no-cache-dir \
 # Pre-download the embedding model during build
 RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
+# Local speech-to-text fallback when Gemini is unavailable (see _transcribe_with_whisper).
+# The model is baked in so the first transcription doesn't download ~480MB.
+RUN pip install --no-cache-dir faster-whisper==1.2.1 \
+    && python3 -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')"
+
 
 COPY . .
 

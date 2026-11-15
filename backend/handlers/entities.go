@@ -7,7 +7,32 @@ import (
 	"github.com/bugracakmak/aether-api/middleware"
 	"github.com/bugracakmak/aether-api/models"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+// entityLiveNoteCountSQL counts the notes an entity is shown with on its detail
+// page: linked, not deleted, and processed. entities.note_count must always mean
+// exactly this, so the list, detail page, and graph agree.
+const entityLiveNoteCountSQL = `(SELECT COUNT(DISTINCT ne.note_id)
+	FROM note_entities ne JOIN notes n ON n.id = ne.note_id
+	WHERE ne.entity_id = entities.id AND n.deleted_at IS NULL AND n.status = 'ready')`
+
+// linkedEntityIDs returns the IDs of the entities linked to a note.
+func linkedEntityIDs(db *gorm.DB, noteID string) []string {
+	var ids []string
+	db.Raw("SELECT entity_id::text FROM note_entities WHERE note_id = ?", noteID).Scan(&ids)
+	return ids
+}
+
+// recountEntities resyncs note_count for the given entities from their live links.
+// Call it after anything that changes which notes an entity is linked to.
+func recountEntities(db *gorm.DB, entityIDs []string) {
+	if len(entityIDs) == 0 {
+		return
+	}
+	db.Exec(`UPDATE entities SET note_count = `+entityLiveNoteCountSQL+`, updated_at = NOW()
+		WHERE id IN ?`, entityIDs)
+}
 
 // ListEntities returns all entities for the current user.
 func ListEntities(c *gin.Context) {
@@ -20,7 +45,8 @@ func ListEntities(c *gin.Context) {
 	entityType := c.Query("type")
 	q := c.Query("q")
 
-	query := database.DB.Where("vault_id = ?", vault.ID).Order("note_count DESC, name ASC")
+	// Entities whose notes were all deleted have note_count 0 and are hidden.
+	query := database.DB.Where("vault_id = ? AND note_count > 0", vault.ID).Order("note_count DESC, name ASC")
 
 	if entityType != "" {
 		query = query.Where("type = ?", entityType)
@@ -41,13 +67,13 @@ func ListEntities(c *gin.Context) {
 	database.DB.Raw(`
 		SELECT type, COUNT(*) as count
 		FROM entities
-		WHERE vault_id = ? AND deleted_at IS NULL
+		WHERE vault_id = ? AND deleted_at IS NULL AND note_count > 0
 		GROUP BY type
 		ORDER BY count DESC
 	`, vault.ID).Scan(&typeCounts)
 
 	var totalCount int64
-	database.DB.Model(&models.Entity{}).Where("vault_id = ?", vault.ID).Count(&totalCount)
+	database.DB.Model(&models.Entity{}).Where("vault_id = ? AND note_count > 0", vault.ID).Count(&totalCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"entities":    entities,

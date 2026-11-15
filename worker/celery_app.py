@@ -26,6 +26,10 @@ beat_schedule = {
         "task": "tasks.backfill_relations",
         "schedule": 90,  # Every 90 seconds
     },
+    "recount-entities": {
+        "task": "tasks.recount_entities",
+        "schedule": 600,  # Every 10 minutes — keeps entity note counts honest
+    },
 }
 
 # ── Configuration ──────────────────────────────────────
