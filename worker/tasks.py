@@ -231,15 +231,15 @@ def _download_youtube_audio(url: str) -> str:
         "outtmpl": tmp_path,
         "quiet": True,
         "no_warnings": True,
-        "max_filesize": MAX_MEDIA_BYTES,
+        **_ytdlp_size_guard_opts(),
     }
     logger.info(f"🎧 Downloading audio for {url}")
     try:
         with yt_dlp.YoutubeDL(dl_opts) as ydl:
             ydl.download([url])
-        if os.path.exists(tmp_path):
+        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) <= MAX_MEDIA_BYTES:
             return tmp_path
-        logger.warning("⚠️ yt-dlp did not create the audio file")
+        logger.warning("⚠️ No audio file within the size cap (missing, live, or too large)")
     except Exception as e:
         logger.warning(f"⚠️ Audio download failed: {e}")
     if os.path.exists(tmp_path):
@@ -296,6 +296,25 @@ WHISPER_THREADS = int(os.getenv("WHISPER_THREADS", "2"))
 WHISPER_MAX_SECONDS = int(os.getenv("WHISPER_MAX_SECONDS", "900"))
 # Hard cap on any media file we download for transcription.
 MAX_MEDIA_BYTES = 200 * 1024 * 1024
+
+
+def _ytdlp_size_guard_opts() -> dict:
+    """yt-dlp options that keep a download under MAX_MEDIA_BYTES.
+
+    max_filesize only works when the size is known up front, so a progress hook
+    also aborts mid-download, and live streams (unbounded) are rejected.
+    """
+    import yt_dlp
+
+    def _abort_if_too_big(d):
+        if d.get("downloaded_bytes", 0) > MAX_MEDIA_BYTES:
+            raise yt_dlp.utils.DownloadError(f"media exceeds {MAX_MEDIA_BYTES // (1024 * 1024)}MB cap")
+
+    return {
+        "max_filesize": MAX_MEDIA_BYTES,
+        "progress_hooks": [_abort_if_too_big],
+        "match_filter": yt_dlp.utils.match_filter_func("!is_live"),
+    }
 _whisper_model = None
 _whisper_lock = threading.Lock()  # one transcription at a time; model loads once
 
@@ -714,7 +733,7 @@ def _download_instagram_video_ytdlp(url: str) -> str:
             "outtmpl": tmp_path,
             "quiet": True,
             "no_warnings": True,
-            "max_filesize": MAX_MEDIA_BYTES,
+            **_ytdlp_size_guard_opts(),
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])

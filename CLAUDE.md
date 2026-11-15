@@ -167,7 +167,7 @@ POST /api/v1/share → Create note (status: processing) → Redis queue → Cele
 
 ### Local Transcription (faster-whisper)
 - `_transcribe_with_whisper()` — CPU fallback when Gemini fails (no key / no credits). Model `small` int8 baked into the worker image
-- minis is a 4-core Intel N150: ~0.4x realtime with 2 threads. One transcription at a time (lock); ffmpeg cuts the media to the first `WHISPER_MAX_SECONDS` (900) **before** Whisper sees it (faster-whisper decodes the whole file up front). Downloads are capped at 200MB
+- minis is a 4-core Intel N150: ~0.4x realtime with 2 threads. One transcription at a time (lock); ffmpeg cuts the media to the first `WHISPER_MAX_SECONDS` (900) **before** Whisper sees it (faster-whisper decodes the whole file up front). Downloads are capped at 200MB (`_ytdlp_size_guard_opts`: max_filesize + mid-download progress hook + no live streams)
 - Instagram reels: Gemini (speech + visuals) → Whisper (speech only). Image OCR is still Gemini-only
 
 ### Claude CLI calls (worker + chat)
@@ -175,6 +175,7 @@ POST /api/v1/share → Create note (status: processing) → Redis queue → Cele
 - **Containers never get root's SSH key.** api and worker each mount their own key from `/root/aether-keys/{api,worker}/` (on minis, outside the rsynced repo) at `/ssh`, with a pinned `known_hosts`
 - Each key is `restrict,from="172.16.0.0/12",command="/root/aether/scripts/claude-forced.sh <chat|worker>"` in `/root/.ssh/authorized_keys`: the remote command the container sends is ignored; the script runs claude with fixed flags (chat: `--model sonnet`, stream-json, fixed system prompt). Changing chat/worker CLI flags means editing `scripts/claude-forced.sh`
 - The script `cd`s into the empty `/root/.aether-claude-cwd`: from `/root`, Claude Code loads the host's auto-memory (notes about other projects on minis) into every prompt, and chat users could read it back
+- The script also replaces the system prompt in both modes (never reveal environment details; worker treats content as untrusted). The CLI always attaches the **account email** (userEmail) to the context and has no off switch; the prompts make the model refuse to disclose it (verified), but the only hard fix is a dedicated Claude account for the server
 - Host default model is `opus[1m]` (`/root/.claude/settings.json`), so worker calls use Opus despite the "(sonnet)" log line; chat pins `--model sonnet`
 - For non-forced setups `CLAUDE_CLI_PATH` can be an ssh prefix; ssh joins remote words with spaces, so every claude argument is shell-quoted (otherwise `--tools ""` silently loses its empty value)
 
