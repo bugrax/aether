@@ -216,8 +216,7 @@ def _transcribe_youtube(url: str, info: dict) -> tuple:
                 return transcript, "Whisper"
         return "", ""
     finally:
-        if audio_path and os.path.exists(audio_path):
-            os.remove(audio_path)
+        _remove_media(audio_path)
 
 
 def _download_youtube_audio(url: str) -> str:
@@ -242,8 +241,7 @@ def _download_youtube_audio(url: str) -> str:
         logger.warning("⚠️ No audio file within the size cap (missing, live, or too large)")
     except Exception as e:
         logger.warning(f"⚠️ Audio download failed: {e}")
-    if os.path.exists(tmp_path):
-        os.remove(tmp_path)
+    _remove_media(tmp_path)
     return ""
 
 
@@ -296,6 +294,19 @@ WHISPER_THREADS = int(os.getenv("WHISPER_THREADS", "2"))
 WHISPER_MAX_SECONDS = int(os.getenv("WHISPER_MAX_SECONDS", "900"))
 # Hard cap on any media file we download for transcription.
 MAX_MEDIA_BYTES = 200 * 1024 * 1024
+
+
+def _remove_media(path: str):
+    """Delete a downloaded media file plus any yt-dlp leftovers next to it
+    (.part, .part-Frag*, .ytdl, .whisper.wav), which survive aborted downloads."""
+    import glob
+    if not path:
+        return
+    for leftover in glob.glob(glob.escape(path) + "*"):
+        try:
+            os.remove(leftover)
+        except OSError:
+            pass
 
 
 def _ytdlp_size_guard_opts() -> dict:
@@ -743,9 +754,8 @@ def _download_instagram_video_ytdlp(url: str) -> str:
             return tmp_path
     except Exception as e:
         logger.warning(f"⚠️ yt-dlp Instagram download failed: {e}")
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
+    _remove_media(tmp_path)
     return ""
 
 
@@ -809,8 +819,7 @@ def _transcribe_local_video(file_path: str) -> str:
     try:
         return _gemini_analyze_video(file_path) or _transcribe_with_whisper(file_path)
     finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        _remove_media(file_path)
 
 
 def _transcribe_instagram_video(video_url: str) -> str:
