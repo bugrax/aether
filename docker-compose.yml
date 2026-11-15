@@ -57,11 +57,12 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-bugracakmak@gmail.com}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       EMBEDDING_URL: http://worker:8100
-      # Chat: Claude CLI on the host (primary), Gemini fallback
-      CLAUDE_CLI_PATH: "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes -i /root/.ssh/id_rsa root@172.17.0.1 /root/.local/bin/claude"
-      CLAUDE_MODEL: ${CLAUDE_MODEL:-sonnet}
+      # Chat: Claude CLI on the host (primary), Gemini fallback. The key is
+      # restricted to a forced command (scripts/claude-forced.sh chat) that runs
+      # claude with fixed flags and no tools; the remote command here is ignored.
+      CLAUDE_CLI_PATH: "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/ssh/known_hosts -o LogLevel=ERROR -i /ssh/id_ed25519 root@172.17.0.1 claude"
     volumes:
-      - /root/.ssh:/root/.ssh:ro
+      - /root/aether-keys/api:/ssh:ro
       - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     depends_on:
       postgres:
@@ -87,7 +88,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-aether}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aether_secret}
       EMBEDDING_URL: http://localhost:8100
-      CLAUDE_CLI_PATH: "ssh -o StrictHostKeyChecking=no -i /root/.ssh/id_rsa root@172.17.0.1 /root/.local/bin/claude"
+      # Restricted key: forced command scripts/claude-forced.sh worker (no tools)
+      CLAUDE_CLI_PATH: "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/ssh/known_hosts -o LogLevel=ERROR -i /ssh/id_ed25519 root@172.17.0.1 claude"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       APIFY_TOKEN: ${APIFY_TOKEN:-}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-aether-8717a}
@@ -102,7 +104,7 @@ services:
       WHISPER_THREADS: ${WHISPER_THREADS:-2}
       WHISPER_MAX_SECONDS: ${WHISPER_MAX_SECONDS:-900}
     volumes:
-      - /root/.ssh:/root/.ssh:ro
+      - /root/aether-keys/worker:/ssh:ro
       - ./firebase-service-account.json:/app/firebase-service-account.json:ro
     depends_on:
       redis:

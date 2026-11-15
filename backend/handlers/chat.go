@@ -414,6 +414,8 @@ func streamClaudeResponse(c *gin.Context, prompt string) (string, error) {
 	}
 	// --tools "" is a hard requirement: chat input is untrusted and the CLI runs
 	// as root on the host, so it must not be able to read files or run commands.
+	// On minis the SSH key is bound to scripts/claude-forced.sh, which ignores
+	// these args and enforces the same flags itself; keep the two in sync.
 	cmd, err := claudeCLICommand(ctx,
 		"-p",
 		"--tools", "",

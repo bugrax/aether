@@ -231,6 +231,7 @@ def _download_youtube_audio(url: str) -> str:
         "outtmpl": tmp_path,
         "quiet": True,
         "no_warnings": True,
+        "max_filesize": MAX_MEDIA_BYTES,
     }
     logger.info(f"🎧 Downloading audio for {url}")
     try:
@@ -293,6 +294,8 @@ WHISPER_THREADS = int(os.getenv("WHISPER_THREADS", "2"))
 # Only the first N seconds are transcribed: the LLM sees at most ~30k chars of
 # content anyway, and minis is a 4-core N150 shared with many other services.
 WHISPER_MAX_SECONDS = int(os.getenv("WHISPER_MAX_SECONDS", "900"))
+# Hard cap on any media file we download for transcription.
+MAX_MEDIA_BYTES = 200 * 1024 * 1024
 _whisper_model = None
 _whisper_lock = threading.Lock()  # one transcription at a time; model loads once
 
@@ -308,26 +311,37 @@ def _transcribe_with_whisper(file_path: str) -> str:
         logger.warning("⚠️ faster-whisper not installed, skipping local transcription")
         return ""
 
+    # faster-whisper decodes the WHOLE file into memory (and runs VAD over it)
+    # before yielding a single segment, so the duration cap must be applied
+    # before it sees the file: ffmpeg reads only the first N seconds.
+    clip_path = f"{file_path}.whisper.wav"
     try:
+        subprocess.run(
+            ["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+             "-t", str(WHISPER_MAX_SECONDS), "-i", file_path,
+             "-vn", "-ac", "1", "-ar", "16000", clip_path],
+            check=True, timeout=300, capture_output=True,
+        )
         with _whisper_lock:
             if _whisper_model is None:
                 logger.info(f"🎙️ Loading Whisper model '{WHISPER_MODEL}' (int8, {WHISPER_THREADS} threads)...")
                 _whisper_model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
                                               cpu_threads=WHISPER_THREADS)
             started = time.time()
-            segments, info = _whisper_model.transcribe(file_path, beam_size=1, vad_filter=True)
-            parts = []
-            for seg in segments:  # lazy generator: stopping early skips the rest
-                if seg.start > WHISPER_MAX_SECONDS:
-                    break
-                parts.append(seg.text.strip())
-        transcript = " ".join(p for p in parts if p)
+            segments, info = _whisper_model.transcribe(clip_path, beam_size=1, vad_filter=True)
+            transcript = " ".join(t for t in (seg.text.strip() for seg in segments) if t)
         logger.info(f"🎙️ Whisper: {len(transcript)} chars, lang={info.language}, "
                     f"audio={info.duration:.0f}s, took {time.time() - started:.0f}s")
         return transcript
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"⚠️ Whisper: ffmpeg could not read the media: {e.stderr.decode(errors='ignore')[:200]}")
+        return ""
     except Exception as e:
         logger.warning(f"⚠️ Whisper transcription failed: {e}")
         return ""
+    finally:
+        if os.path.exists(clip_path):
+            os.remove(clip_path)
 
 
 def _transcribe_audio_with_gemini(audio_path: str) -> str:
@@ -700,6 +714,7 @@ def _download_instagram_video_ytdlp(url: str) -> str:
             "outtmpl": tmp_path,
             "quiet": True,
             "no_warnings": True,
+            "max_filesize": MAX_MEDIA_BYTES,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
@@ -793,8 +808,13 @@ def _transcribe_instagram_video(video_url: str) -> str:
             logger.warning(f"Failed to download Instagram video: {resp.status_code}")
             return ""
 
+        written = 0
         with open(tmp_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=8192):
+                written += len(chunk)
+                if written > MAX_MEDIA_BYTES:
+                    logger.warning("Instagram video larger than the media cap, skipping transcription")
+                    return ""
                 f.write(chunk)
 
         file_size = os.path.getsize(tmp_path)
@@ -993,6 +1013,8 @@ CLAUDE_CLI = os.getenv("CLAUDE_CLI_PATH", "claude")
 
 # Prompts carry untrusted web content and the CLI runs as root on the host, so
 # every call runs with all tools disabled (no file reads, shell, or web access).
+# On minis the SSH key is bound to scripts/claude-forced.sh, which ignores these
+# args and enforces the same flags itself; keep the two in sync.
 CLAUDE_ARGS = ["-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence"]
 
 

@@ -167,12 +167,16 @@ POST /api/v1/share → Create note (status: processing) → Redis queue → Cele
 
 ### Local Transcription (faster-whisper)
 - `_transcribe_with_whisper()` — CPU fallback when Gemini fails (no key / no credits). Model `small` int8 baked into the worker image
-- minis is a 4-core Intel N150: ~0.4x realtime with 2 threads. One transcription at a time (lock); only the first `WHISPER_MAX_SECONDS` (900) are transcribed
+- minis is a 4-core Intel N150: ~0.4x realtime with 2 threads. One transcription at a time (lock); ffmpeg cuts the media to the first `WHISPER_MAX_SECONDS` (900) **before** Whisper sees it (faster-whisper decodes the whole file up front). Downloads are capped at 200MB
 - Instagram reels: Gemini (speech + visuals) → Whisper (speech only). Image OCR is still Gemini-only
 
 ### Claude CLI calls (worker + chat)
 - Always run with `--tools "" --strict-mcp-config`: prompts carry untrusted web content / chat input and the CLI runs as **root on the host**
-- `CLAUDE_CLI_PATH` is an ssh prefix; ssh joins remote words with spaces, so every claude argument must be shell-quoted (otherwise `--tools ""` silently loses its empty value)
+- **Containers never get root's SSH key.** api and worker each mount their own key from `/root/aether-keys/{api,worker}/` (on minis, outside the rsynced repo) at `/ssh`, with a pinned `known_hosts`
+- Each key is `restrict,from="172.16.0.0/12",command="/root/aether/scripts/claude-forced.sh <chat|worker>"` in `/root/.ssh/authorized_keys`: the remote command the container sends is ignored; the script runs claude with fixed flags (chat: `--model sonnet`, stream-json, fixed system prompt). Changing chat/worker CLI flags means editing `scripts/claude-forced.sh`
+- The script `cd`s into the empty `/root/.aether-claude-cwd`: from `/root`, Claude Code loads the host's auto-memory (notes about other projects on minis) into every prompt, and chat users could read it back
+- Host default model is `opus[1m]` (`/root/.claude/settings.json`), so worker calls use Opus despite the "(sonnet)" log line; chat pins `--model sonnet`
+- For non-forced setups `CLAUDE_CLI_PATH` can be an ssh prefix; ssh joins remote words with spaces, so every claude argument is shell-quoted (otherwise `--tools ""` silently loses its empty value)
 
 ### Domain Label Parsing
 - `urlparse().netloc.replace("www.", "")` — strip only PREFIX subdomains
@@ -309,6 +313,6 @@ When adding new features, endpoints, pages, or making architectural changes, upd
 12. **Tauri `tauri://localhost` origin must be in CORS** — or all API calls fail silently
 13. **`npm run build:desktop` does NOT rebuild Vite** — run `npm run build` first, or use `rm -rf dist && npm run build && npm run build:desktop`
 14. **Thumbnails stored in MinIO** (`s3.relayhaus.org/aether-thumbnails/`) — not base64 in DB. Old base64 thumbnails migrated.
-15. **AI chat uses the Claude CLI over SSH** (api container mounts `/root/.ssh`, has `openssh-client`), Gemini only as fallback — Gemini prepaid credits ran out in Nov 2026 (`402`)
+15. **AI chat uses the Claude CLI over SSH** (api container has `openssh-client` + its restricted key), Gemini only as fallback — Gemini prepaid credits ran out in Nov 2026 (`402`)
 16. **Never run `claude -p` without `--tools ""`** — it runs as root on minis and would read files (e.g. `.env`) on request of web content or chat users
 17. **Old iOS builds don't get frontend fixes** — the Capacitor app ships its own bundle; web fixes reach iPhone users only after a new iOS build (Xcode Cloud runs `ci_post_clone.sh`, bump `CURRENT_PROJECT_VERSION` for both App and AetherShare)
